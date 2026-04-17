@@ -9,6 +9,8 @@ namespace kafka {
 /// TCP server that listens for producer / consumer connections.
 class Server {
 public:
+    /// @dev 'explicit' prevents implicit conversions and copy constructions.
+    /// ex: Server s = 9092; is illegal.
     explicit Server(uint16_t port = kDefaultPort);
     ~Server();
 
@@ -22,8 +24,8 @@ private:
     static constexpr uint16_t kDefaultPort = 9092;
     static constexpr int      kBacklog     = 128;
 
-    uint16_t         port_;
-    int              listen_fd_{-1};
+    uint16_t          port_;
+    int               listen_fd_{-1};
     std::atomic<bool> running_{false};
 
     /// Set up the listening socket.
