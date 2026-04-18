@@ -14,6 +14,9 @@
 
 namespace kafka {
 
+/// @dev initializer list is more efficient than assignment in the body
+/// because it avoids default-constructing then assigning.
+/// especially constant members could only be initialized in initializer list.
 Server::Server(uint16_t port) : port_(port) {}
 
 Server::~Server() {
@@ -30,11 +33,14 @@ void Server::run() {
 void Server::shutdown() {
     running_ = false;
     if (listen_fd_ >= 0) {
+        /// @dev by default, compiler seek for kafka namespace first => close == kafka::close
+        /// so we need to use ::close to refer to global namespace.
         ::close(listen_fd_);
         listen_fd_ = -1;
     }
 }
 
+/// TODO: non-blocking broker
 void Server::bind_and_listen() {
     listen_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd_ < 0) {
@@ -61,10 +67,11 @@ void Server::bind_and_listen() {
 void Server::accept_loop() {
     while (running_) {
         sockaddr_in client_addr{};
-        socklen_t   len = sizeof(client_addr);
-        int client_fd = ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&client_addr), &len);
+        socklen_t   len       = sizeof(client_addr);
+        int         client_fd = ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&client_addr), &len);
         if (client_fd < 0) {
-            if (!running_) break;
+            if (!running_)
+                break;
             std::cerr << "[broker] accept error: " << std::strerror(errno) << "\n";
             continue;
         }

@@ -21,10 +21,12 @@ public:
     void shutdown();
 
 private:
+    /// @dev constexpr: assign value at compile time.
     static constexpr uint16_t kDefaultPort = 9092;
     static constexpr int      kBacklog     = 128;
 
-    uint16_t          port_;
+    uint16_t port_;
+    /// @dev default member initializer (C++11), -1 is default value for file descriptor
     int               listen_fd_{-1};
     std::atomic<bool> running_{false};
 
