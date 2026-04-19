@@ -2,6 +2,8 @@
 
 A single-node message broker inspired by Apache Kafka.
 
+- Kafka design: https://kafka.apache.org/42/design/protocol/
+
 ## Build
 
 ```bash
