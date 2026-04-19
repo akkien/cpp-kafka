@@ -1,6 +1,9 @@
 #pragma once
 
 #include <string>
+#include <variant>
+
+#include "common/message.h"
 
 namespace kafka {
 
@@ -18,6 +21,7 @@ private:
 
     /// Read one line (terminated by '\n') from the socket.
     bool read_line(std::string& out);
+    bool read_message(ReqType& req_type, std::variant<ProduceRequest, ConsumeRequest>& req);
 
     /// Read exactly `n` bytes from the socket.
     bool read_bytes(std::string& out, size_t n);
@@ -26,8 +30,8 @@ private:
     bool send_response(const std::string& data);
 
     // ─── Command handlers ────────────────────────────────────────
-    void handle_produce(const std::string& line);
-    void handle_consume(const std::string& line);
+    void handle_produce(Request& req);
+    void handle_consume(Request& req);
     void handle_list_topics();
 };
 

@@ -4,29 +4,31 @@
 #include <string>
 #include <variant>
 
+#include "common/message.h"
+
 namespace kafka {
 
 // ─── Parsed request types ────────────────────────────────────────────
 
-struct ProduceRequest {
-    std::string topic;
-    uint32_t    payload_len{0};
-    std::string payload;
-};
+// struct ProduceRequest {
+//     std::string topic;
+//     uint32_t    payload_len{0};
+//     std::string payload;
+// };
 
-struct ConsumeRequest {
-    std::string topic;
-    uint64_t    offset{0};
-    uint32_t    max_bytes{0};
-};
+// struct ConsumeRequest {
+//     std::string topic;
+//     uint64_t    offset{0};
+//     uint32_t    max_bytes{0};
+// };
 
-struct ListTopicsRequest {};
+// struct ListTopicsRequest {};
 
-struct BadRequest {
-    std::string reason;
-};
+// struct BadRequest {
+//     std::string reason;
+// };
 
-using Request = std::variant<ProduceRequest, ConsumeRequest, ListTopicsRequest, BadRequest>;
+// using Request = std::variant<ProduceRequest, ConsumeRequest, ListTopicsRequest, BadRequest>;
 
 // ─── Parser ──────────────────────────────────────────────────────────
 

@@ -7,7 +7,6 @@
 #include <variant>
 
 #include "broker/log_manager.h"
-#include "broker/protocol_parser.h"
 
 namespace kafka {
 
@@ -21,58 +20,53 @@ ConnectionHandler::~ConnectionHandler() {
 // ---------------------------------------------------------------------------
 void ConnectionHandler::run() {
     std::string line;
-    while (read_line(line)) {
-        Request req = ProtocolParser::parse(line);
+    Request     req;
+    ReqType     req_type;
+    while (read_message(req_type, req)) {
+        switch (req_type) {
+            case ReqType::PRODUCE:
+                std::cout << "[broker] produce request received" << std::endl;
+                handle_produce(req);
+                break;
+            case ReqType::CONSUME:
+                handle_consume(req);
+                break;
+            default:
+                send_response("ERROR unknown request type\n");
+                break;
+        }
+        // Request req = ProtocolParser::parse(line);
 
-        std::visit(
-            [this, &line](auto&& r) {
-                using T = std::decay_t<decltype(r)>;
+        // std::visit(
+        //     [this, &line](auto&& r) {
+        //         using T = std::decay_t<decltype(r)>;
 
-                if constexpr (std::is_same_v<T, ProduceRequest>) {
-                    handle_produce(line);
-                } else if constexpr (std::is_same_v<T, ConsumeRequest>) {
-                    handle_consume(line);
-                } else if constexpr (std::is_same_v<T, ListTopicsRequest>) {
-                    handle_list_topics();
-                } else {
-                    // BadRequest
-                    send_response("ERROR " + r.reason + "\n");
-                }
-            },
-            req);
+        //         if constexpr (std::is_same_v<T, ProduceRequest>) {
+        //             handle_produce(line);
+        //         } else if constexpr (std::is_same_v<T, ConsumeRequest>) {
+        //             handle_consume(line);
+        //         } else if constexpr (std::is_same_v<T, ListTopicsRequest>) {
+        //             handle_list_topics();
+        //         } else {
+        //             // BadRequest
+        //             send_response("ERROR " + r.reason + "\n");
+        //         }
+        //     },
+        //     req);
     }
 }
 
 // ---------------------------------------------------------------------------
-void ConnectionHandler::handle_produce(const std::string& line) {
-    auto  req_var = ProtocolParser::parse(line);
-    auto* req     = std::get_if<ProduceRequest>(&req_var);
-    if (!req) {
-        send_response("ERROR parse\n");
-        return;
-    }
-
-    // Read the payload body
-    std::string payload;
-    if (!read_bytes(payload, req->payload_len)) {
-        send_response("ERROR incomplete payload\n");
-        return;
-    }
-    ProtocolParser::attach_payload(*req, payload);
-
-    uint64_t offset = LogManager::instance().append(req->topic, req->payload);
+void ConnectionHandler::handle_produce(Request& req) {
+    auto&    pr     = std::get<ProduceRequest>(req);
+    uint64_t offset = LogManager::instance().append(pr.topic, pr.record.value);
     send_response("OK " + std::to_string(offset) + "\n");
 }
 
-void ConnectionHandler::handle_consume(const std::string& line) {
-    auto  req_var = ProtocolParser::parse(line);
-    auto* req     = std::get_if<ConsumeRequest>(&req_var);
-    if (!req) {
-        send_response("ERROR parse\n");
-        return;
-    }
+void ConnectionHandler::handle_consume(Request& req) {
+    auto& cr = std::get<ConsumeRequest>(req);
 
-    auto messages = LogManager::instance().read(req->topic, req->offset, req->max_bytes);
+    auto messages = LogManager::instance().read(cr.topic, cr.offset, cr.max_bytes);
     for (const auto& msg : messages) {
         send_response("MESSAGE " + std::to_string(msg.offset) + " " + std::to_string(msg.size) + "\n");
         send_response(msg.payload);
@@ -123,6 +117,36 @@ bool ConnectionHandler::send_response(const std::string& data) {
             return false;
         total += static_cast<size_t>(n);
     }
+    return true;
+}
+
+bool ConnectionHandler::read_message(ReqType& req_type, std::variant<ProduceRequest, ConsumeRequest>& req) {
+    char req_size_buf[4];
+    int  bytes_received = ::recv(client_fd_, req_size_buf, sizeof(req_size_buf), MSG_WAITALL);
+    if (bytes_received <= 0) {
+        return false;
+    }
+    uint32_t req_size_val = ntohl(*reinterpret_cast<uint32_t*>(req_size_buf));
+
+    std::string req_buf(req_size_val, '\0');
+    bytes_received = ::recv(client_fd_, req_buf.data(), req_size_val, MSG_WAITALL);
+    if (bytes_received <= 0) {
+        return false;
+    }
+    uint16_t api_key = ntohs(*reinterpret_cast<uint16_t*>(req_buf.data()));
+    req_type         = static_cast<ReqType>(api_key);
+    if (req_type == ReqType::PRODUCE) {
+        ProduceRequest pr;
+        if (!parse_produce_request(req_buf.data(), req_buf.size(), pr))
+            return false;
+        req = std::move(pr);
+    } else if (req_type == ReqType::CONSUME) {
+        ConsumeRequest cr;
+        if (!parse_consume_request(req_buf.data(), req_buf.size(), cr))
+            return false;
+        req = std::move(cr);
+    }
+
     return true;
 }
 

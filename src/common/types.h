@@ -14,8 +14,8 @@ struct Message {
 
 /// Runtime bookkeeping for one topic.
 struct TopicState {
-    int      fd{-1};           // File descriptor for the .log file
-    uint64_t next_offset{0};   // Next available byte offset
+    int      fd{-1};          // File descriptor for the .log file
+    uint64_t next_offset{0};  // Next available byte offset
 };
 
 /// Default listen port (matches Apache Kafka convention).

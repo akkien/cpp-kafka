@@ -6,7 +6,7 @@
 #include "common/serialize.h"
 
 // Serialize Record → bytes
-std::string serialize(const Record& rec) {
+std::string serialize_record(const Record& rec) {
     std::string buf;
     encode_varint(buf, rec.length);           // varint
     buf += rec.attributes;                    // 1 byte cố định
@@ -26,7 +26,7 @@ std::string serialize(const Record& rec) {
     return buf;
 }
 
-Record deserialize(const char* data, size_t len) {
+Record deserialize_record(const char* data, size_t len) {
     Record   rec;
     size_t   pos = 0;
     uint64_t val = 0;

@@ -14,3 +14,6 @@ struct Record {
     std::string         value;
     std::vector<Header> headers;
 };
+
+std::string serialize_record(const Record& rec);
+Record      deserialize_record(const char* data, size_t len);

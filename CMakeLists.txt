@@ -8,12 +8,21 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # Export compile compile_commands.json fo
 # ─── Compiler warnings ───────────────────────────────────────────────
 add_compile_options(-Wall -Wextra -Wpedantic)  # Enable all warnings
 
+# ─── Common library ────────────────────────────────────────────────────
+add_library(kafka_common STATIC
+    src/common/record.cpp
+    src/common/serialize.cpp
+    src/common/message.cpp
+)
+target_include_directories(kafka_common PUBLIC src)
+
 # ─── Client library (shared between producer & consumer) ─────────────
 add_library(kafka_client STATIC
     src/client/client.cpp
     src/client/connection.cpp
 )
 target_include_directories(kafka_client PUBLIC src)
+target_link_libraries(kafka_client PUBLIC kafka_common)
 
 # ─── Broker executable ───────────────────────────────────────────────
 add_executable(broker
@@ -25,7 +34,7 @@ add_executable(broker
 )   
 target_include_directories(broker PRIVATE src)
 # pthread is not standard library (iostream, vector,...) -> link it manually
-target_link_libraries(broker PRIVATE pthread)
+target_link_libraries(broker PRIVATE pthread kafka_common)
 
 # ─── Producer CLI ─────────────────────────────────────────────────────
 add_executable(producer
