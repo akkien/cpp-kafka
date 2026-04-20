@@ -1,5 +1,8 @@
 # TODO
 
+- use epoll in broker 
+- page cache ?
+
 ## Optimization
 
 Đúng hướng, nhưng Kafka thật chia thành **3 layer**, không chỉ 2:
@@ -78,3 +81,15 @@ value           N bytes
 headers_count   varint
 headers         N bytes   (key-value pairs)
 ```
+
+- store batch into log file
+- create batch, not single record
+- sendfile()
+- read message in client 
+
+
+
+- post: how different language handle memory
+  - c++: move(),
+  - reference, smart pointer, garbage collection, ownership, borrowing, thread safe
+  

@@ -26,8 +26,7 @@ std::string serialize_record(const Record& rec) {
     return buf;
 }
 
-Record deserialize_record(const char* data, size_t len) {
-    Record   rec;
+bool deserialize_record(const char* data, size_t len, Record& rec) {
     size_t   pos = 0;
     uint64_t val = 0;
 
@@ -70,5 +69,5 @@ Record deserialize_record(const char* data, size_t len) {
         rec.headers.push_back(std::move(h));
     }
 
-    return rec;
+    return pos == len;
 }

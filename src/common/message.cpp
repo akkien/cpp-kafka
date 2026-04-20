@@ -17,8 +17,8 @@ std::string serialize_produce_request(const ProduceRequest& req) {
     encode_varint(body, req.topic.size());
     body += req.topic;
 
-    // record
-    body += serialize_record(req.record);
+    // batch
+    body += serialize_batch(req.batch);
 
     // Prepend 4-byte total size
     std::string final_buf;
@@ -72,9 +72,8 @@ bool parse_produce_request(const char* data, size_t len, ProduceRequest& req) {
     req.topic.assign(data + pos, val);
     pos += val;
 
-    // record
-    req.record = deserialize_record(data + pos, len - pos);
-    return true;
+    // batch
+    return deserialize_batch(data + pos, len - pos, req.batch);
 }
 
 bool parse_consume_request(const char* data, size_t len, ConsumeRequest& req) {

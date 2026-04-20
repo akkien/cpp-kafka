@@ -49,24 +49,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // auto messages = client.consume(topic, offset, max_bytes);
-    // for (const auto& msg : messages) {
-    //     std::cout << "[offset=" << msg.offset << " size=" << msg.size << "] "
-    //               << msg.payload << "\n";
-    // }
     while (true) {
-        auto messages = client.consume(topic, offset, max_bytes);
-        for (const auto& msg : messages) {
+        auto batches = client.consume(topic, offset, max_bytes);
+        for (const auto& batch : batches) {
             // process each message
-            std::cout << "[offset=" << msg.offset << " size=" << msg.size << "] " << msg.payload << "\n";
-
-            // advance offset past this message
-            // 8 bytes (offset) + 4 bytes (size) + payload size
-            offset = msg.offset + 12 + msg.size;
-
-            if (messages.empty()) {
-                std::cout << "[consumer] no messages\n";
-            }
+            std::cout << "offset = " << offset << " value = " << batch.records[0].value << "\n";
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(500));

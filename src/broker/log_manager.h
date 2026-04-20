@@ -21,21 +21,21 @@ public:
 
     /// Read messages starting at `offset` up to `max_bytes` worth of data.
     std::vector<Message> read(const std::string& topic, uint64_t offset, uint32_t max_bytes);
-
+    bool                 send(int const& client_fd, const std::string& topic, uint64_t offset, uint32_t max_bytes);
     /// Return the list of known topic names.
     std::vector<std::string> list_topics() const;
 
 private:
     LogManager();
     ~LogManager();
-    LogManager(const LogManager&) = delete;
+    LogManager(const LogManager&)            = delete;
     LogManager& operator=(const LogManager&) = delete;
 
     /// Lazily open (or create) the log file for a topic.
     TopicState& get_or_create(const std::string& topic);
 
-    std::string                                data_dir_{"data"};
-    mutable std::mutex                         mu_;
+    std::string                                 data_dir_{"data"};
+    mutable std::mutex                          mu_;
     std::unordered_map<std::string, TopicState> topics_;
 };
 

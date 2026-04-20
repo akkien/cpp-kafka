@@ -2,7 +2,7 @@
 #include <string>
 #include <variant>
 
-#include "common/record.h"
+#include "common/batch.h"
 
 enum class ReqType : uint16_t {
     PRODUCE = 0,
@@ -12,7 +12,7 @@ enum class ReqType : uint16_t {
 struct ProduceRequest {
     ReqType     api_key;
     std::string topic;
-    Record      record;
+    Batch       batch;
 };
 
 struct ConsumeRequest {

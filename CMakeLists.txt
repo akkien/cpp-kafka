@@ -10,8 +10,9 @@ add_compile_options(-Wall -Wextra -Wpedantic)  # Enable all warnings
 
 # ─── Common library ────────────────────────────────────────────────────
 add_library(kafka_common STATIC
-    src/common/record.cpp
     src/common/serialize.cpp
+    src/common/record.cpp
+    src/common/batch.cpp
     src/common/message.cpp
 )
 target_include_directories(kafka_common PUBLIC src)

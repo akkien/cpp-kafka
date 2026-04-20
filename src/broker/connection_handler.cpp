@@ -35,43 +35,20 @@ void ConnectionHandler::run() {
                 send_response("ERROR unknown request type\n");
                 break;
         }
-        // Request req = ProtocolParser::parse(line);
-
-        // std::visit(
-        //     [this, &line](auto&& r) {
-        //         using T = std::decay_t<decltype(r)>;
-
-        //         if constexpr (std::is_same_v<T, ProduceRequest>) {
-        //             handle_produce(line);
-        //         } else if constexpr (std::is_same_v<T, ConsumeRequest>) {
-        //             handle_consume(line);
-        //         } else if constexpr (std::is_same_v<T, ListTopicsRequest>) {
-        //             handle_list_topics();
-        //         } else {
-        //             // BadRequest
-        //             send_response("ERROR " + r.reason + "\n");
-        //         }
-        //     },
-        //     req);
     }
 }
 
 // ---------------------------------------------------------------------------
 void ConnectionHandler::handle_produce(Request& req) {
     auto&    pr     = std::get<ProduceRequest>(req);
-    uint64_t offset = LogManager::instance().append(pr.topic, pr.record.value);
+    uint64_t offset = LogManager::instance().append(pr.topic, serialize_batch(pr.batch));
     send_response("OK " + std::to_string(offset) + "\n");
 }
 
 void ConnectionHandler::handle_consume(Request& req) {
     auto& cr = std::get<ConsumeRequest>(req);
 
-    auto messages = LogManager::instance().read(cr.topic, cr.offset, cr.max_bytes);
-    for (const auto& msg : messages) {
-        send_response("MESSAGE " + std::to_string(msg.offset) + " " + std::to_string(msg.size) + "\n");
-        send_response(msg.payload);
-    }
-    send_response("END\n");
+    LogManager::instance().send(client_fd_, cr.topic, cr.offset, cr.max_bytes);
 }
 
 void ConnectionHandler::handle_list_topics() {
