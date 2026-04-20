@@ -16,4 +16,4 @@ struct Record {
 };
 
 std::string serialize_record(const Record& rec);
-bool        deserialize_record(const char* data, size_t len, Record& rec);
+size_t      deserialize_record(const char* data, size_t len, Record& rec);

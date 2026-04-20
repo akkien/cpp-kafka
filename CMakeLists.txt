@@ -48,3 +48,27 @@ add_executable(consumer
     src/consumer/main.cpp
 )
 target_link_libraries(consumer PRIVATE kafka_client)
+
+# ─── Unit Tests ───────────────────────────────────────────────────────
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
+)
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
+enable_testing()
+
+add_executable(unit_tests
+    tests/test_serialize.cpp
+    tests/test_record.cpp
+    tests/test_batch.cpp
+    tests/test_message.cpp
+)
+target_include_directories(unit_tests PRIVATE src)
+target_link_libraries(unit_tests PRIVATE GTest::gtest_main kafka_common)
+
+include(GoogleTest)
+gtest_discover_tests(unit_tests)

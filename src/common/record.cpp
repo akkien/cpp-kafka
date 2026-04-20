@@ -26,48 +26,71 @@ std::string serialize_record(const Record& rec) {
     return buf;
 }
 
-bool deserialize_record(const char* data, size_t len, Record& rec) {
+size_t deserialize_record(const char* data, size_t len, Record& rec) {
     size_t   pos = 0;
     uint64_t val = 0;
+    int bytes = 0;
 
     // length (varint)
-    pos += decode_varint(data + pos, len - pos, val);
+    bytes = decode_varint(data + pos, len - pos, val);
+    if (bytes <= 0) return 0;
+    pos += bytes;
     rec.length = static_cast<int32_t>(val);
 
+    if (pos >= len) return 0;
     // attributes (1 byte)
     rec.attributes = static_cast<int8_t>(data[pos++]);
 
     // timestamp_delta (varint)
-    pos += decode_varint(data + pos, len - pos, val);
+    bytes = decode_varint(data + pos, len - pos, val);
+    if (bytes <= 0) return 0;
+    pos += bytes;
     rec.timestamp_delta = static_cast<int64_t>(val);
 
     // offset_delta (varint)
-    pos += decode_varint(data + pos, len - pos, val);
+    bytes = decode_varint(data + pos, len - pos, val);
+    if (bytes <= 0) return 0;
+    pos += bytes;
     rec.offset_delta = static_cast<int64_t>(val);
 
     // key
-    pos += decode_varint(data + pos, len - pos, val);
+    bytes = decode_varint(data + pos, len - pos, val);
+    if (bytes <= 0) return 0;
+    pos += bytes;
+    if (pos + val > len) return 0;
     rec.key.assign(data + pos, val);
     pos += val;
 
     // value
-    pos += decode_varint(data + pos, len - pos, val);
+    bytes = decode_varint(data + pos, len - pos, val);
+    if (bytes <= 0) return 0;
+    pos += bytes;
+    if (pos + val > len) return 0;
     rec.value.assign(data + pos, val);
     pos += val;
 
     // headers
-    pos += decode_varint(data + pos, len - pos, val);
+    bytes = decode_varint(data + pos, len - pos, val);
+    if (bytes <= 0) return 0;
+    pos += bytes;
     size_t header_count = val;
     for (size_t i = 0; i < header_count; ++i) {
         Header h;
-        pos += decode_varint(data + pos, len - pos, val);
+        bytes = decode_varint(data + pos, len - pos, val);
+        if (bytes <= 0) return 0;
+        pos += bytes;
+        if (pos + val > len) return 0;
         h.key.assign(data + pos, val);
         pos += val;
-        pos += decode_varint(data + pos, len - pos, val);
+        
+        bytes = decode_varint(data + pos, len - pos, val);
+        if (bytes <= 0) return 0;
+        pos += bytes;
+        if (pos + val > len) return 0;
         h.value.assign(data + pos, val);
         pos += val;
         rec.headers.push_back(std::move(h));
     }
 
-    return pos == len;
+    return pos;
 }

@@ -11,6 +11,12 @@ cmake -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 ```
 
+## Test
+```bash
+cmake --build build --target test_serialize
+./build/test_serialize
+```
+
 ## Run
 
 ```bash

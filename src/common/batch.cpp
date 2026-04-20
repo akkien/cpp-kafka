@@ -19,11 +19,12 @@ bool deserialize_batch(const char* data, size_t len, Batch& batch) {
     size_t pos = 0;
     while (pos < len) {
         Record rec;
-        if (!deserialize_record(data + pos, len - pos, rec)) {
+        size_t consumed = deserialize_record(data + pos, len - pos, rec);
+        if (consumed == 0) {
             return false;
         }
         batch.records.push_back(std::move(rec));
-        pos += rec.length;
+        pos += consumed;
     }
     return true;
 }
