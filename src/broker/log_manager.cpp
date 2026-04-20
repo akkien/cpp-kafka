@@ -10,6 +10,7 @@
 #include <iostream>
 #include <stdexcept>
 
+namespace fs = std::filesystem;
 namespace kafka {
 
 LogManager& LogManager::instance() {
@@ -18,7 +19,15 @@ LogManager& LogManager::instance() {
 }
 
 LogManager::LogManager() {
-    std::filesystem::create_directories(data_dir_);
+    // TODO: init once and pass to every handler, not create every time
+    fs::create_directories(data_dir_);
+    try {
+        for (const auto& entry : fs::directory_iterator(data_dir_)) {
+            get_or_create(entry.path().stem().string());
+        }
+    } catch (const fs::filesystem_error& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+    }
 }
 
 LogManager::~LogManager() {
