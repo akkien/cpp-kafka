@@ -29,6 +29,7 @@ void ConnectionHandler::run() {
                 handle_produce(req);
                 break;
             case ReqType::CONSUME:
+                std::cout << "[broker] consume request received" << std::endl;
                 handle_consume(req);
                 break;
             default:
@@ -47,7 +48,6 @@ void ConnectionHandler::handle_produce(Request& req) {
 
 void ConnectionHandler::handle_consume(Request& req) {
     auto& cr = std::get<ConsumeRequest>(req);
-
     LogManager::instance().send(client_fd_, cr.topic, cr.offset, cr.max_bytes);
 }
 

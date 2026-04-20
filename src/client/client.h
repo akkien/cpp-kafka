@@ -23,7 +23,7 @@ public:
     int64_t produce(const std::string& topic, const std::string& payload);
 
     /// Consume messages from a topic starting at the given offset.
-    std::vector<Batch> consume(const std::string& topic, uint64_t offset, uint32_t max_bytes = 4096);
+    std::vector<Batch> consume(const std::string& topic, uint64_t& offset, uint32_t max_bytes = 4096);
 
     /// List all known topics on the broker.
     std::vector<std::string> list_topics();

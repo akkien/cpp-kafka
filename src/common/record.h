@@ -6,10 +6,10 @@ struct Header {
 };
 
 struct Record {
-    int32_t             length;
-    int8_t              attributes;
-    int64_t             timestamp_delta;
-    int64_t             offset_delta;
+    int32_t             length          = 0;
+    int8_t              attributes      = 0;
+    int64_t             timestamp_delta = 0;
+    int64_t             offset_delta    = 0;
     std::string         key;
     std::string         value;
     std::vector<Header> headers;

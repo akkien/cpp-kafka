@@ -113,16 +113,24 @@ bool LogManager::send(int const& client_fd, const std::string& topic, uint64_t o
     std::lock_guard lock(mu_);
     auto            it = topics_.find(topic);
     if (it == topics_.end()) {
+        std::cout << "[LogManager::send] topic not found: " << topic << std::endl;
         // Auto-create empty topic (consistent with error-handling strategy).
         get_or_create(topic);
         return {};
     }
-
+    std::cout << "[LogManager::send] topic: " << topic << ", offset: " << offset << ", max_bytes: " << max_bytes
+              << std::endl;
     auto& state = it->second;
-
-    off_t end         = ::lseek(state.fd, 0, SEEK_END);
+    off_t end   = ::lseek(state.fd, 0, SEEK_END);
+    std::cout << "[LogManager::send] end: " << end << std::endl;
     off_t amt_to_send = end - offset;
-
+    if (amt_to_send <= 0) {
+        amt_to_send = 0;
+        ::send(client_fd, &amt_to_send, sizeof(amt_to_send), 0);
+        return false;
+    }
+    ::send(client_fd, &amt_to_send, sizeof(amt_to_send), 0);
+    std::cout << "[LogManager::send] amt_to_send: " << amt_to_send << std::endl;
     int res = ::sendfile(state.fd, client_fd, offset, &amt_to_send, NULL, 0);
     return res == 0;
 }
