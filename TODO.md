@@ -2,6 +2,8 @@
 
 - use epoll in broker 
 - page cache ?
+- thread: implement section ## Lock
+- add more fields to message
 
 ## Optimization
 
@@ -41,6 +43,14 @@ Client ──TCP──▶ Network thread (nhận) ──queue──▶ I/O threa
 
 Lợi ích của việc tách: network thread không bao giờ bị chặn bởi disk I/O chậm, nên nó luôn sẵn sàng nhận request mới từ client khác.
 
+## Lock 
+3. Kafka thật giải quyết tranh chấp (Race Condition) như thế nào?
+Kafka thật sẽ tối ưu khóa (Lock Optimization) cực kỳ tinh vi:
+
+Khóa theo từng Topic/Partition (Fine-Grained Locking): Thay vì dùng 1 biến mu_ cho toàn bộ LogManager, người ta đặt biến std::mutex vào bên trong cấu trúc TopicState. Ai tương tác với file của Topic nào thì chỉ khóa Topic đó. topic_A và topic_B hoàn toàn không block lẫn nhau.
+Read không cần Lock (Lock-free Reads): Hàm sendfile (trên Mac) và hàm pread có khả năng đọc dữ liệu từ một offset cụ thể mà không làm thay đổi con trỏ của file descriptor. Do đó, hàng chục Consumer có thể gọi sendfile đọc cùng 1 file log cùng một lúc mà không hề xảy ra xung đột.
+Khóa Đọc-Ghi (Readers-Writer Lock): Trong C++17 có std::shared_mutex. Nhiều luồng Consumer có thể cùng cầm khóa Read (đọc song song thoải mái), nhưng luồng Producer khi muốn ghi (append) thì sẽ xin khóa Write (chặn tất cả lại để ghi cho an toàn).
+(Tạm thời ở phiên bản Mini Kafka này, cấu trúc dùng 1 lock mu_ của bạn là hoàn toàn hợp lý để chạy cho đúng đã. Tối ưu khóa là bài toán cho phase sau!)
 
 ## Message format
 - https://kafka.apache.org/42/implementation/message-format/#record-batch
@@ -80,16 +90,6 @@ value_length    varint
 value           N bytes
 headers_count   varint
 headers         N bytes   (key-value pairs)
-```
-
-- store batch into log file
-- create batch, not single record
-- sendfile()
-- read message in client 
+``` 
 
 
-
-- post: how different language handle memory
-  - c++: move(),
-  - reference, smart pointer, garbage collection, ownership, borrowing, thread safe
-  

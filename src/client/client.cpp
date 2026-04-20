@@ -69,6 +69,9 @@ std::vector<Batch> Client::consume(const std::string& topic, uint64_t& offset, u
             std::cout << "Error: Failed to read offset" << std::endl;
             break;
         }
+        /// @dev batch_offset_buf.data() return to pointer to memory location, batch_offset_buf is string class, not
+        /// data itself reinterpret_cast<uint64_t*> cast to pointer to uint64_t
+        /// * before reinterpret_cast dereference the pointer to get the value
         uint64_t batch_offset = *reinterpret_cast<uint64_t*>(batch_offset_buf.data());
         std::cout << "batch_offset = " << batch_offset << std::endl;
 
@@ -77,7 +80,11 @@ std::vector<Batch> Client::consume(const std::string& topic, uint64_t& offset, u
             std::cout << "Error: Failed to read size" << std::endl;
             break;
         }
-        uint32_t size = *reinterpret_cast<uint32_t*>(size_buf.data());
+        /// @dev memcpy is safer way to convert bytes to type than reinterpret_cast
+        /// because it handles endianness, alignment, and other issues
+        /// we use both ways to learn
+        uint32_t size;
+        std::memcpy(&size, size_buf.data(), sizeof(uint32_t));
         std::cout << "size = " << size << std::endl;
         // TODO: size can be >= max_bytes, we should not return here.
         if (size > max_bytes) {
