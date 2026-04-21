@@ -125,6 +125,8 @@ bool LogManager::send(int const& client_fd, const std::string& topic, uint64_t o
         std::cout << "[LogManager::send] topic not found: " << topic << std::endl;
         // Auto-create empty topic (consistent with error-handling strategy).
         get_or_create(topic);
+        off_t amt_to_send = 0;
+        ::send(client_fd, &amt_to_send, sizeof(amt_to_send), 0);
         return {};
     }
     std::cout << "[LogManager::send] topic: " << topic << ", offset: " << offset << ", max_bytes: " << max_bytes

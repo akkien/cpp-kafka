@@ -32,7 +32,7 @@ TEST(BatchTest, SerializeDeserialize) {
 TEST(BatchTest, EmptyBatch) {
     Batch batch;
     std::string serialized = serialize_batch(batch);
-    EXPECT_EQ(serialized.size(), 0);
+    EXPECT_EQ(serialized.size(), 61);
     
     Batch decoded;
     bool success = deserialize_batch(serialized.data(), serialized.size(), decoded);

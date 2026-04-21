@@ -1,3 +1,9 @@
+# Things I learned from this project
+
+## C++
+- function using template must be in .h, not .cpp or it will cause linker error
+- std::move helps avoid copying
+- declarative way to cast string to int: uint64_t batch_offset = *reinterpret_cast<uint64_t*>(batch_offset_buf.data());
 
 ## Encode varint 
 

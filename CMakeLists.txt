@@ -6,6 +6,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)  # C++ version 20 is required
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # Export compile compile_commands.json for tools like clangd
 
 # ─── Compiler warnings ───────────────────────────────────────────────
+include(FetchContent)
+
+# Tắt các config test của crc32c để tránh lỗi build thư viện con
+set(CRC32C_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(CRC32C_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(CRC32C_USE_GLOG OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+  crc32c
+  URL https://github.com/google/crc32c/archive/refs/tags/1.1.2.zip
+)
+# Bắt buộc phải có hàm này để CMake tải và cài đặt crc32c
+FetchContent_MakeAvailable(crc32c)
+
+# ─── Compiler warnings ───────────────────────────────────────────────
 add_compile_options(-Wall -Wextra -Wpedantic)  # Enable all warnings
 
 # ─── Common library ────────────────────────────────────────────────────
@@ -16,6 +31,8 @@ add_library(kafka_common STATIC
     src/common/message.cpp
 )
 target_include_directories(kafka_common PUBLIC src)
+# Phải link thư viện crc32c vào kafka_common thì batch.cpp mới thấy được header
+target_link_libraries(kafka_common PUBLIC crc32c)
 
 # ─── Client library (shared between producer & consumer) ─────────────
 add_library(kafka_client STATIC

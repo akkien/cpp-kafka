@@ -22,7 +22,6 @@ int64_t Client::produce(const std::string& topic, const std::string& payload) {
     rec.value  = payload;
     rec.length = static_cast<int32_t>(payload.size());
     produce_request.batch.records.push_back(std::move(rec));
-
     std::cout << "before serialize" << std::endl;
     if (!conn_.send(serialize_produce_request(produce_request))) {
         std::cout << "after serialize" << std::endl;
@@ -106,26 +105,6 @@ std::vector<Batch> Client::consume(const std::string& topic, uint64_t& offset, u
 
     return batches;
 }
-
-// while (conn_.read_bytes(line, max_bytes)) {
-//     if (line == "END")
-//         break;
-
-//     // Expected: "MESSAGE <offset> <len>"
-//     std::istringstream iss(line);
-//     std::string        tag;
-//     Message            msg;
-//     iss >> tag >> msg.offset >> msg.size;
-
-//     if (tag != "MESSAGE" || iss.fail())
-//         break;
-
-//     if (!conn_.read_bytes(msg.payload, msg.size))
-//         break;
-//     messages.push_back(std::move(msg));
-// }
-// return messages;
-// }
 
 std::vector<std::string> Client::list_topics() {
     if (!conn_.send("LIST_TOPICS\n"))
