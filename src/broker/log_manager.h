@@ -20,6 +20,8 @@ struct IndexEntry {
     uint64_t byte_offset;
 };
 
+int find_index_by_msg_offset(const std::vector<IndexEntry>& indexes, int64_t msg_offset);
+
 /// Runtime bookkeeping for one topic.
 struct TopicState {
     int                     log_fd{-1};          // File descriptor for the .log file
@@ -65,6 +67,7 @@ private:
     void  open_topic_logs(const std::string& topic, TopicState& state);
     void  open_topic_index(const std::string& topic, TopicState& state);
     Batch find_last_batch(const TopicState& state);
+
     /// Lazily open (or create) the log file for a topic.
     TopicState& get_or_create(const std::string& topic);
 

@@ -82,6 +82,8 @@ add_executable(unit_tests
     tests/test_record.cpp
     tests/test_batch.cpp
     tests/test_message.cpp
+    tests/test_log_manager.cpp
+    src/broker/log_manager.cpp
 )
 target_include_directories(unit_tests PRIVATE src)
 target_link_libraries(unit_tests PRIVATE GTest::gtest_main kafka_common)

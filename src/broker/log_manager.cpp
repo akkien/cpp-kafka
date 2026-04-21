@@ -63,6 +63,10 @@ TopicState& LogManager::get_or_create(const std::string& topic) {
         state.next_msg_offset = last_batch.base_offset + last_batch.records_count;
     }
     std::cout << "Initial State: " << state << std::endl;
+    std::cout << "Indexes: " << std::endl;
+    for (auto& [msg_offset, byte_position] : state.indexes) {
+        std::cout << "msg_offset: " << msg_offset << ", byte_position: " << byte_position << std::endl;
+    }
     auto [inserted, _] = topics_.emplace(topic, state);
     return inserted->second;
 }
@@ -112,12 +116,16 @@ bool LogManager::send(int const& client_fd, const std::string& topic, uint64_t o
         ::send(client_fd, &amt_to_send, sizeof(amt_to_send), 0);
         return {};
     }
+
     std::cout << "[LogManager::send] topic: " << topic << ", offset: " << offset << ", max_bytes: " << max_bytes
               << std::endl;
-    auto& state = it->second;
-    off_t end   = ::lseek(state.log_fd, 0, SEEK_END);
+    auto& state        = it->second;
+    int   index_idx    = find_index_by_msg_offset(state.indexes, offset);
+    auto  batch_offset = state.indexes[index_idx].byte_offset;
+
+    off_t end = ::lseek(state.log_fd, 0, SEEK_END);
     std::cout << "[LogManager::send] end: " << end << std::endl;
-    off_t amt_to_send = end - offset;
+    off_t amt_to_send = end - batch_offset;
     if (amt_to_send <= 0) {
         amt_to_send = 0;
         ::send(client_fd, &amt_to_send, sizeof(amt_to_send), 0);
@@ -125,7 +133,7 @@ bool LogManager::send(int const& client_fd, const std::string& topic, uint64_t o
     }
     ::send(client_fd, &amt_to_send, sizeof(amt_to_send), 0);
     std::cout << "[LogManager::send] amt_to_send: " << amt_to_send << std::endl;
-    int res = ::sendfile(state.log_fd, client_fd, offset, &amt_to_send, NULL, 0);
+    int res = ::sendfile(state.log_fd, client_fd, batch_offset, &amt_to_send, NULL, 0);
     return res == 0;
 }
 
@@ -196,6 +204,26 @@ Batch LogManager::find_last_batch(const TopicState& state) {
     ::read(state.log_fd, batch_buf.data(), batch_size);
     deserialize_batch(batch_buf.data(), batch_size, last_batch);
     return last_batch;
+}
+
+int find_index_by_msg_offset(const std::vector<IndexEntry>& indexes, int64_t msg_offset) {
+    if (indexes.empty())
+        return 0;
+
+    int l   = 0;
+    int r   = indexes.size() - 1;
+    int ans = 0;
+
+    while (l <= r) {
+        int mid = l + (r - l) / 2;
+        if (indexes[mid].msg_offset <= msg_offset) {
+            ans = mid;
+            l   = mid + 1;
+        } else {
+            r = mid - 1;
+        }
+    }
+    return ans;
 }
 
 }  // namespace kafka
