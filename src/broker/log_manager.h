@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iostream>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -8,7 +9,7 @@
 #include "common/batch.h"
 #include "common/types.h"
 
-const int INDEX_INTERVAL = 1024;  // 4096 in real kafka
+const int INDEX_INTERVAL = 50;  // 4096 in real kafka
 
 namespace kafka {
 
@@ -30,6 +31,17 @@ struct TopicState {
     uint16_t                bytes_since_last_index_entry{0};
 };
 
+inline std::ostream& operator<<(std::ostream& os, const TopicState& s) {
+    return os << "{\n"
+              << "  log_fd: " << s.log_fd << ",\n"
+              << "  next_log_offset: " << s.next_log_offset << ",\n"
+              << "  idx_fd: " << s.idx_fd << ",\n"
+              << "  next_idx_offset: " << s.next_idx_offset << ",\n"
+              << "  next_msg_offset: " << s.next_msg_offset << ",\n"
+              << "  bytes_since_last_index_entry: " << s.bytes_since_last_index_entry << "\n"
+              << "}\n";
+}
+
 /// Manages append-only log files — one per topic.
 class LogManager {
 public:
@@ -50,8 +62,9 @@ private:
     LogManager(const LogManager&)            = delete;
     LogManager& operator=(const LogManager&) = delete;
 
-    void open_topic_logs(const std::string& topic, TopicState& state);
-    void open_topic_index(const std::string& topic, TopicState& state);
+    void  open_topic_logs(const std::string& topic, TopicState& state);
+    void  open_topic_index(const std::string& topic, TopicState& state);
+    Batch find_last_batch(const TopicState& state);
     /// Lazily open (or create) the log file for a topic.
     TopicState& get_or_create(const std::string& topic);
 
