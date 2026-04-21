@@ -116,7 +116,9 @@ std::vector<Batch> Client::consume(const std::string& topic, uint64_t& offset, u
         bytes_read += 12 + size;
         std::cout << "bytes_read: " << bytes_read << std::endl;
     }
-    offset += amt_to_receive;
+    if (!batches.empty()) {
+        offset = batches.back().base_offset + batches.back().records_count;
+    }
 
     return batches;
 }

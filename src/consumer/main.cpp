@@ -50,11 +50,16 @@ int main(int argc, char* argv[]) {
     }
 
     while (true) {
-        auto batches = client.consume(topic, offset, max_bytes);
+        auto start_offset = offset;
+        auto batches      = client.consume(topic, offset, max_bytes);
         for (const auto& batch : batches) {
             // process each message
             for (const auto& rec : batch.records) {
-                std::cout << "offset = " << offset << " value = " << rec.value << "\n";
+                int rec_offset = batch.base_offset + rec.offset_delta;
+                if (rec_offset < start_offset) {
+                    continue;
+                }
+                std::cout << "offset = " << rec_offset << " value = " << rec.value << "\n";
             }
         }
 

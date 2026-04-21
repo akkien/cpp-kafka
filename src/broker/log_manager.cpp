@@ -20,6 +20,7 @@ LogManager& LogManager::instance() {
 
 LogManager::LogManager() {
     // TODO: init once and pass to every handler, not create every time
+    // TODO: init when server startup, not in connection handler
     fs::create_directories(data_dir_);
     try {
         for (const auto& entry : fs::directory_iterator(data_dir_)) {
@@ -108,6 +109,8 @@ uint64_t LogManager::append(const std::string& topic, Batch& batch) {
 bool LogManager::send(int const& client_fd, const std::string& topic, uint64_t offset, uint32_t max_bytes) {
     std::lock_guard lock(mu_);
     auto            it = topics_.find(topic);
+
+    // If topic doesn't exist, return 0 bytes
     if (it == topics_.end()) {
         std::cout << "[LogManager::send] topic not found: " << topic << std::endl;
         // Auto-create empty topic (consistent with error-handling strategy).
@@ -119,9 +122,16 @@ bool LogManager::send(int const& client_fd, const std::string& topic, uint64_t o
 
     std::cout << "[LogManager::send] topic: " << topic << ", offset: " << offset << ", max_bytes: " << max_bytes
               << std::endl;
-    auto& state        = it->second;
-    int   index_idx    = find_index_by_msg_offset(state.indexes, offset);
-    auto  batch_offset = state.indexes[index_idx].byte_offset;
+    auto& state = it->second;
+    // If offset is greater than or equal to the last record's offset, return 0 bytes
+    if (offset >= state.next_msg_offset) {
+        off_t amt_to_send = 0;
+        ::send(client_fd, &amt_to_send, sizeof(amt_to_send), 0);
+        return true;
+    }
+
+    int  index_idx    = find_index_by_msg_offset(state.indexes, offset);
+    auto batch_offset = state.indexes[index_idx].byte_offset;
 
     off_t end = ::lseek(state.log_fd, 0, SEEK_END);
     std::cout << "[LogManager::send] end: " << end << std::endl;
