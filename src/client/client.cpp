@@ -13,19 +13,26 @@ bool Client::connect() {
     return conn_.connect(host_, port_);
 }
 
-int64_t Client::produce(const std::string& topic, const std::string& payload) {
+int64_t Client::produce(const std::string& topic, std::vector<std::string>& messages) {
     ProduceRequest produce_request;
     produce_request.api_key = ReqType::PRODUCE;
     produce_request.topic   = topic;
 
-    Record rec;
-    rec.value  = payload;
-    rec.length = static_cast<int32_t>(payload.size());
+    int64_t timestamp = std::chrono::system_clock::now().time_since_epoch().count();
+    Batch   batch;
+    batch.first_timestamp = timestamp;
+    batch.max_timestamp   = timestamp;
+    for (const auto& msg : messages) {
+        Record rec;
+        rec.value           = msg;
+        rec.timestamp_delta = 0;
+        rec.length          = static_cast<int32_t>(msg.size());
+        batch.records.push_back(std::move(rec));
+    }
 
-    // TODO: multiple records in one batch
-    produce_request.batch.records.push_back(std::move(rec));
-    produce_request.batch.records_count     = produce_request.batch.records.size();
-    produce_request.batch.last_offset_delta = produce_request.batch.records_count - 1;
+    batch.records_count     = messages.size();
+    batch.last_offset_delta = messages.size() - 1;
+    produce_request.batch   = batch;
 
     std::cout << "before serialize" << std::endl;
     if (!conn_.send(serialize_produce_request(produce_request))) {

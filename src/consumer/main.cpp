@@ -53,7 +53,9 @@ int main(int argc, char* argv[]) {
         auto batches = client.consume(topic, offset, max_bytes);
         for (const auto& batch : batches) {
             // process each message
-            std::cout << "offset = " << offset << " value = " << batch.records[0].value << "\n";
+            for (const auto& rec : batch.records) {
+                std::cout << "offset = " << offset << " value = " << rec.value << "\n";
+            }
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
