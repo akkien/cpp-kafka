@@ -5,6 +5,15 @@
 - std::move helps avoid copying
 - declarative way to cast string to int: uint64_t batch_offset = *reinterpret_cast<uint64_t*>(batch_offset_buf.data());
 
+## Kafka 
+- use binary protocol to speed up
+- use varint to save space
+- use sendfile to transfer file, no need to copy to user space
+- offset in Kafka is logical order of a message, not byte offset. Hence, besides .log file, kafka also use index file (.index) to speed up random access. .index file store pairs of (offset, position in .log)
+
+
+
+
 ## Encode varint 
 
 300 to binary

@@ -3,7 +3,12 @@
 
 #include "common/record.h"
 
-const int CRC_START_BYTE = 21;
+const int INT32_T_SIZE   = sizeof(int32_t);
+const int INT64_T_SIZE   = sizeof(int64_t);
+const int INT16_T_SIZE   = sizeof(int16_t);
+const int INT8_T_SIZE    = sizeof(int8_t);
+const int CRC_START_BYTE = INT64_T_SIZE + INT32_T_SIZE + INT32_T_SIZE + INT8_T_SIZE;
+const int BYTE_AFTER_CRC = CRC_START_BYTE + INT32_T_SIZE;
 
 struct Batch {
     int64_t base_offset =

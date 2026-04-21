@@ -28,8 +28,8 @@ std::string serialize_batch(const Batch& batch) {
         buf += serialize_record(rec);
     }
 
-    int32_t actual_length = static_cast<int32_t>(buf.size() - 12);
-    std::memcpy(buf.data() + 8, &actual_length, 4);
+    int32_t batch_length = static_cast<int32_t>(buf.size() - INT64_T_SIZE - INT32_T_SIZE);
+    std::memcpy(buf.data() + INT64_T_SIZE, &batch_length, INT32_T_SIZE);
 
     calculate_crc(buf);
     return buf;
@@ -68,10 +68,10 @@ bool deserialize_batch(const char* data, size_t len, Batch& batch) {
 }
 
 bool calculate_crc(std::string& batch_buf) {
-    if (batch_buf.size() < 21)
+    if (batch_buf.size() < BYTE_AFTER_CRC)
         return false;
 
-    uint32_t crc = crc32c::Crc32c(batch_buf.c_str() + CRC_START_BYTE, batch_buf.size() - CRC_START_BYTE);
-    std::memcpy(batch_buf.data() + CRC_START_BYTE - 4, &crc, 4);
+    uint32_t crc = crc32c::Crc32c(batch_buf.c_str() + BYTE_AFTER_CRC, batch_buf.size() - BYTE_AFTER_CRC);
+    std::memcpy(batch_buf.data() + CRC_START_BYTE, &crc, INT32_T_SIZE);
     return true;
 }

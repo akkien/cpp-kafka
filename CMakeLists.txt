@@ -48,7 +48,6 @@ add_executable(broker
     src/broker/server.cpp
     src/broker/log_manager.cpp
     src/broker/connection_handler.cpp
-    src/broker/protocol_parser.cpp
 )   
 target_include_directories(broker PRIVATE src)
 # pthread is not standard library (iostream, vector,...) -> link it manually

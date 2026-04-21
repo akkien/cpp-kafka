@@ -21,7 +21,12 @@ int64_t Client::produce(const std::string& topic, const std::string& payload) {
     Record rec;
     rec.value  = payload;
     rec.length = static_cast<int32_t>(payload.size());
+
+    // TODO: multiple records in one batch
     produce_request.batch.records.push_back(std::move(rec));
+    produce_request.batch.records_count     = produce_request.batch.records.size();
+    produce_request.batch.last_offset_delta = produce_request.batch.records_count - 1;
+
     std::cout << "before serialize" << std::endl;
     if (!conn_.send(serialize_produce_request(produce_request))) {
         std::cout << "after serialize" << std::endl;
