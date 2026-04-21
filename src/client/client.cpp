@@ -13,7 +13,7 @@ bool Client::connect() {
     return conn_.connect(host_, port_);
 }
 
-int64_t Client::produce(const std::string& topic, std::vector<std::string>& messages) {
+int64_t Client::produce(const std::string& topic, const std::string& key, const std::vector<std::string>& messages) {
     ProduceRequest produce_request;
     produce_request.api_key = ReqType::PRODUCE;
     produce_request.topic   = topic;
@@ -22,16 +22,19 @@ int64_t Client::produce(const std::string& topic, std::vector<std::string>& mess
     Batch   batch;
     batch.first_timestamp = timestamp;
     batch.max_timestamp   = timestamp;
+    int64_t offset_delta  = 0;
     for (const auto& msg : messages) {
         Record rec;
+        rec.key             = key;
         rec.value           = msg;
         rec.timestamp_delta = 0;
+        rec.offset_delta    = offset_delta++;
         rec.length          = static_cast<int32_t>(msg.size());
         batch.records.push_back(std::move(rec));
     }
 
     batch.records_count     = messages.size();
-    batch.last_offset_delta = messages.size() - 1;
+    batch.last_offset_delta = offset_delta - 1;
     produce_request.batch   = batch;
 
     std::cout << "before serialize" << std::endl;

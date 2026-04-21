@@ -20,7 +20,7 @@ public:
     bool connect();
 
     /// Produce a message to a topic. Returns the offset on success, -1 on error.
-    int64_t produce(const std::string& topic, std::vector<std::string>& messages);
+    int64_t produce(const std::string& topic, const std::string& key, const std::vector<std::string>& messages);
 
     /// Consume messages from a topic starting at the given offset.
     std::vector<Batch> consume(const std::string& topic, uint64_t& offset, uint32_t max_bytes = 4096);

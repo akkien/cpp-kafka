@@ -13,7 +13,7 @@ static void usage(const char* prog) {
 int main(int argc, char* argv[]) {
     std::string              host = "127.0.0.1";
     uint16_t                 port = kafka::kDefaultPort;
-    std::string              key;
+    std::string              key  = "";
     std::string              topic;
     std::string              raw_messages;
     std::vector<std::string> messages;
@@ -52,7 +52,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    int64_t offset = client.produce(topic, messages);
+    int64_t offset = client.produce(topic, key, messages);
     if (offset < 0) {
         std::cerr << "[producer] produce failed\n";
         return 1;
