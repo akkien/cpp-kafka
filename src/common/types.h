@@ -12,12 +12,6 @@ struct Message {
     std::string payload;  // Message data
 };
 
-/// Runtime bookkeeping for one topic.
-struct TopicState {
-    int      fd{-1};          // File descriptor for the .log file
-    uint64_t next_offset{0};  // Next available byte offset
-};
-
 /// Default listen port (matches Apache Kafka convention).
 constexpr uint16_t kDefaultPort = 9092;
 

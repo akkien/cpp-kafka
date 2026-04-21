@@ -42,7 +42,7 @@ void ConnectionHandler::run() {
 // ---------------------------------------------------------------------------
 void ConnectionHandler::handle_produce(Request& req) {
     auto&    pr     = std::get<ProduceRequest>(req);
-    uint64_t offset = LogManager::instance().append(pr.topic, serialize_batch(pr.batch));
+    uint64_t offset = LogManager::instance().append(pr.topic, pr.batch);
     send_response("OK " + std::to_string(offset) + "\n");
 }
 
