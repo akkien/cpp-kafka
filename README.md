@@ -5,7 +5,7 @@ A single-node message broker inspired by Apache Kafka.
 - Kafka design: https://kafka.apache.org/42/design/protocol/
 - Kafka storage: https://www.conduktor.io/blog/understanding-kafka-s-internal-storage-and-log-retention
 - Kafka 3rd party introduction: https://docs.conduktor.io/learn/fundamentals/what-is-apache-kafka  
-
+- Ref client: https://github.com/twmb/franz-go 
 ## Build
 
 ```bash

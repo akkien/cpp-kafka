@@ -4,7 +4,6 @@
 - page cache ?
 - thread: implement section ## Lock
 - add more fields to message
-- create index file to speed up random access
 
 ## Optimization
 

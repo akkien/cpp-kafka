@@ -11,6 +11,7 @@
 #include <thread>
 
 #include "broker/connection_handler.h"
+#include "broker/log_manager.h"
 
 namespace kafka {
 
@@ -24,6 +25,7 @@ Server::~Server() {
 }
 
 void Server::run() {
+    LogManager::instance();  // init log manager
     bind_and_listen();
     running_ = true;
     std::cout << "[broker] listening on port " << port_ << "\n";

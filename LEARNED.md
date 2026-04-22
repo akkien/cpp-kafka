@@ -205,3 +205,29 @@ April 20, 2026
   
 - low level function in C++ is almost identical to operating system call => need to manually check for different OSArchitecture to ensure cross platform compatibility. 
 
+
+
+## Unique pointer
+
+- Log mamager hold one log: log whole send/append for all topic. 
+  - Log manager is singleton to be thread safe (must remove copy constructor, assignment operator)
+  - use std::map: map<string, TopicState> topic_states, each key is topic name.
+
+=> Want to do fine grained locking, lock on each topic.
+- Create TopicState class
+  - Cannot be Singleton. if so, we cannot create multiple TopicState objects, one for each topic.
+  => But we want to prevent multiple object for one topic.
+    - still remove copy constructor, assignment operator
+    - use unique_ptr:  - std::unordered_map<std::string, std::unique_ptr<TopicState>> topics_;
+
+  - Now we want to lock only topics_, which is share between thread?
+
+```cpp
+    TopicState& state = get_or_create(topic)
+    {
+        std::lock_guard lock(mu_);
+        state = get_or_create(topic);
+    }
+```
+  
+    

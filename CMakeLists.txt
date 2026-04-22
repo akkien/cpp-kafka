@@ -48,6 +48,7 @@ add_executable(broker
     src/broker/server.cpp
     src/broker/log_manager.cpp
     src/broker/connection_handler.cpp
+    src/broker/topic_state.cpp
 )   
 target_include_directories(broker PRIVATE src)
 # pthread is not standard library (iostream, vector,...) -> link it manually
@@ -83,7 +84,7 @@ add_executable(unit_tests
     tests/test_batch.cpp
     tests/test_message.cpp
     tests/test_log_manager.cpp
-    src/broker/log_manager.cpp
+    src/broker/topic_state.cpp
 )
 target_include_directories(unit_tests PRIVATE src)
 target_link_libraries(unit_tests PRIVATE GTest::gtest_main kafka_common)

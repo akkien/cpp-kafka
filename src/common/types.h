@@ -19,4 +19,6 @@ constexpr uint16_t kDefaultPort = 9092;
 ///   offset (8 bytes) + size (4 bytes) = 12 bytes
 constexpr size_t kMessageHeaderSize = sizeof(uint64_t) + sizeof(uint32_t);
 
+const int INDEX_INTERVAL = 50;  // 4096 in real kafka
+
 }  // namespace kafka
