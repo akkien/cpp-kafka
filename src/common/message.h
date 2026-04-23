@@ -75,12 +75,35 @@ struct ProduceResponse {
     int32_t                         throttle_time_ms;
 };
 
+struct PartitionFetchResponse {
+    int32_t  partition_index;
+    int16_t  error_code;
+    int64_t  high_watermark;
+    int64_t  last_stable_offset;
+    int64_t  log_start_offset;
+    // record_set will be sent separately via sendfile
+};
+
+struct TopicFetchResponse {
+    std::string                      name;
+    std::vector<PartitionFetchResponse> partitions;
+};
+
+struct FetchResponse {
+    int32_t                      correlation_id;
+    int32_t                      throttle_time_ms;
+    std::vector<TopicFetchResponse> topics;
+};
+
+
 using Request = std::variant<ProduceRequest, ConsumeRequest>;
 
 std::string serialize_produce_request(const ProduceRequest& req);
 std::string serialize_consume_request(const ConsumeRequest& req);
 std::string serialize_produce_response(const ProduceResponse& res);
+std::string serialize_fetch_response_header(const FetchResponse& res);
 
 bool parse_produce_request(const char* data, size_t len, ProduceRequest& req);
 bool parse_consume_request(const char* data, size_t len, ConsumeRequest& req);
 bool parse_produce_response(const char* data, size_t len, ProduceResponse& res);
+bool parse_fetch_response(const char* data, size_t len, FetchResponse& res, std::string& record_set);

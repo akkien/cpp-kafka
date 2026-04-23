@@ -27,7 +27,7 @@ public:
     TopicState& operator=(const TopicState&) = delete;
 
     uint64_t append(Batch& batch);
-    bool     send(int const& client_fd, uint64_t offset, uint32_t max_bytes);
+    bool     send(int const& client_fd, int32_t correlation_id, uint64_t offset, uint32_t max_bytes);
 
     friend std::ostream& operator<<(std::ostream& os, const TopicState& s);
 

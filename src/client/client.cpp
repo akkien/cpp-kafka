@@ -107,59 +107,49 @@ std::vector<Batch> Client::consume(const std::string& topic, uint64_t& offset, u
     if (!conn_.send(serialize_consume_request(consume_request)))
         return {};
 
-    std::string amt_to_receive_buf;
-    uint64_t    amt_to_receive;
-    if (!conn_.read_bytes(amt_to_receive_buf, 8))
+    std::string response_size_buf;
+    if (!conn_.read_bytes(response_size_buf, 4))
         return {};
-    amt_to_receive = *reinterpret_cast<uint64_t*>(amt_to_receive_buf.data());
+    
+    int32_t response_size;
+    decode_int32(response_size_buf.data(), 4, response_size);
+
+    std::string response_body;
+    if (!conn_.read_bytes(response_body, response_size))
+        return {};
+
+    FetchResponse res;
+    std::string   record_set;
+    if (!parse_fetch_response(response_body.data(), response_body.size(), res, record_set))
+        return {};
 
     std::vector<Batch> batches;
-    std::string        batch_offset_buf;
-    std::string        size_buf;
-    std::string        payload_buf;
-    Batch              batch;
-    size_t             bytes_read = 0;
-    while (amt_to_receive != 0 && bytes_read != amt_to_receive) {
-        bool susscess = conn_.read_bytes(batch_offset_buf, 8);  // offset
-        if (!susscess) {
-            std::cout << "Error: Failed to read offset" << std::endl;
-            break;
-        }
-        /// @dev batch_offset_buf.data() return to pointer to memory location, batch_offset_buf is string class, not
-        /// data itself reinterpret_cast<uint64_t*> cast to pointer to uint64_t
-        /// * before reinterpret_cast dereference the pointer to get the value
-        uint64_t batch_offset = *reinterpret_cast<uint64_t*>(batch_offset_buf.data());
-        std::cout << "batch_offset = " << batch_offset << std::endl;
+    const char*        data = record_set.data();
+    size_t             len  = record_set.size();
+    size_t             pos  = 0;
 
-        susscess = conn_.read_bytes(size_buf, 4);  // size
-        if (!susscess) {
-            std::cout << "Error: Failed to read size" << std::endl;
-            break;
+    while (pos < len) {
+        Batch batch;
+        // Each batch in the record_set is a full RecordBatch as stored on disk
+        // which we can deserialize using deserialize_batch.
+        // However, deserialize_batch needs to know how many bytes to read.
+        // In Kafka, the RecordBatch starts with:
+        // [BaseOffset: 8] [BatchLength: 4] ...
+        // The BatchLength is the size of the REST of the batch (after the BatchLength field).
+        
+        if (pos + 12 > len) break;
+        
+        int32_t batch_length;
+        decode_int32(data + pos + 8, 4, batch_length);
+        
+        size_t full_batch_size = 12 + batch_length;
+        if (pos + full_batch_size > len) break;
+        
+        if (deserialize_batch(data + pos, full_batch_size, batch)) {
+            batches.push_back(std::move(batch));
+            offset = batches.back().base_offset + batches.back().records.size();
         }
-        /// @dev memcpy is safer way to convert bytes to type than reinterpret_cast
-        /// because it handles endianness, alignment, and other issues
-        /// we use both ways to learn
-        uint32_t size;
-        std::memcpy(&size, size_buf.data(), sizeof(uint32_t));
-        std::cout << "size = " << size << std::endl;
-        // TODO: size can be >= max_bytes, we should not return here.
-        if (size > max_bytes) {
-            std::cout << "Error: Size exceeds max_bytes" << std::endl;
-            break;
-        }
-
-        susscess = conn_.read_bytes(payload_buf, size);
-        if (!susscess) {
-            std::cout << "Error: Failed to read payload" << std::endl;
-            break;
-        }
-        deserialize_batch(payload_buf.data(), size, batch);
-        batches.push_back(std::move(batch));
-        bytes_read += 12 + size;
-        std::cout << "bytes_read: " << bytes_read << std::endl;
-    }
-    if (!batches.empty()) {
-        offset = batches.back().base_offset + batches.back().records_count;
+        pos += full_batch_size;
     }
 
     return batches;

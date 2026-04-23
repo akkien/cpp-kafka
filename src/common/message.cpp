@@ -252,3 +252,86 @@ bool parse_produce_response(const char* data, size_t len, ProduceResponse& res) 
     return true;
 }
 
+std::string serialize_fetch_response_header(const FetchResponse& res) {
+    std::string body;
+    encode_int32(body, res.correlation_id);
+    encode_int32(body, res.throttle_time_ms);
+
+    encode_int32(body, static_cast<int32_t>(res.topics.size()));
+    for (const auto& topic : res.topics) {
+        encode_string(body, topic.name);
+        encode_int32(body, static_cast<int32_t>(topic.partitions.size()));
+        for (const auto& part : topic.partitions) {
+            encode_int32(body, part.partition_index);
+            encode_int16(body, part.error_code);
+            encode_int64(body, part.high_watermark);
+            encode_int64(body, part.last_stable_offset);
+            encode_int64(body, part.log_start_offset);
+            encode_int32(body, 0); // Placeholder for aborted_transactions count
+            
+            // Note: RecordSet size and data will be handled by the caller
+            // because they might use sendfile.
+        }
+    }
+    
+    // We don't prepend the total size here because we don't know the RecordSet size yet.
+    return body;
+}
+
+bool parse_fetch_response(const char* data, size_t len, FetchResponse& res, std::string& record_set) {
+    size_t pos = 0;
+    int    read;
+
+    read = decode_int32(data + pos, len - pos, res.correlation_id);
+    if (read < 0) return false; pos += read;
+    read = decode_int32(data + pos, len - pos, res.throttle_time_ms);
+    if (read < 0) return false; pos += read;
+
+    int32_t topic_count;
+    read = decode_int32(data + pos, len - pos, topic_count);
+    if (read < 0) return false; pos += read;
+
+    for (int i = 0; i < topic_count; ++i) {
+        TopicFetchResponse topic;
+        read = decode_string(data + pos, len - pos, topic.name);
+        if (read < 0) return false; pos += read;
+
+        int32_t part_count;
+        read = decode_int32(data + pos, len - pos, part_count);
+        if (read < 0) return false; pos += read;
+
+        for (int j = 0; j < part_count; ++j) {
+            PartitionFetchResponse part;
+            read = decode_int32(data + pos, len - pos, part.partition_index);
+            if (read < 0) return false; pos += read;
+            read = decode_int16(data + pos, len - pos, part.error_code);
+            if (read < 0) return false; pos += read;
+            read = decode_int64(data + pos, len - pos, part.high_watermark);
+            if (read < 0) return false; pos += read;
+            read = decode_int64(data + pos, len - pos, part.last_stable_offset);
+            if (read < 0) return false; pos += read;
+            read = decode_int64(data + pos, len - pos, part.log_start_offset);
+            if (read < 0) return false; pos += read;
+            
+            int32_t aborted_count;
+            read = decode_int32(data + pos, len - pos, aborted_count);
+            if (read < 0) return false; pos += read;
+            // Skip aborted transactions (we don't support them)
+            
+            int32_t record_set_size;
+            read = decode_int32(data + pos, len - pos, record_set_size);
+            if (read < 0) return false; pos += read;
+            
+            if (pos + record_set_size > len) return false;
+            record_set.assign(data + pos, record_set_size);
+            pos += record_set_size;
+
+            topic.partitions.push_back(part);
+        }
+        res.topics.push_back(std::move(topic));
+    }
+
+    return true;
+}
+
+

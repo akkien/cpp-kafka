@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "common/message.h"
+#include "common/serialize.h"
 
 TEST(MessageTest, ProduceRequestSerializeDeserialize) {
     ProduceRequest req;
@@ -119,4 +120,44 @@ TEST(MessageTest, ProduceResponseSerializeDeserialize) {
     ASSERT_EQ(decoded.topics[0].partitions.size(), 1);
     EXPECT_EQ(decoded.topics[0].partitions[0].base_offset, 1000);
 }
+
+TEST(MessageTest, FetchResponseSerializeDeserialize) {
+    FetchResponse res;
+    res.correlation_id = 456;
+    res.throttle_time_ms = 0;
+    
+    PartitionFetchResponse p_res;
+    p_res.partition_index = 0;
+    p_res.error_code = 0;
+    p_res.high_watermark = 1000;
+    p_res.last_stable_offset = 1000;
+    p_res.log_start_offset = 0;
+    
+    TopicFetchResponse t_res;
+    t_res.name = "test-topic";
+    t_res.partitions.push_back(p_res);
+    res.topics.push_back(t_res);
+    
+    std::string header = serialize_fetch_response_header(res);
+    
+    // Manual construction of the full response for testing
+    std::string full_response;
+    // We simulate what TopicState::send does
+    std::string record_set = "mock-record-set";
+    int32_t record_set_size = static_cast<int32_t>(record_set.size());
+    
+    int32_t total_size = static_cast<int32_t>(header.size() + 4 + record_set_size);
+    encode_int32(full_response, total_size);
+    full_response += header;
+    encode_int32(full_response, record_set_size);
+    full_response += record_set;
+    
+    FetchResponse decoded;
+    std::string decoded_record_set;
+    bool success = parse_fetch_response(full_response.data() + 4, full_response.size() - 4, decoded, decoded_record_set);
+    EXPECT_TRUE(success);
+    EXPECT_EQ(decoded.correlation_id, 456);
+    EXPECT_EQ(decoded_record_set, "mock-record-set");
+}
+
 

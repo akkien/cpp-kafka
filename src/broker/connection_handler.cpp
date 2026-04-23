@@ -77,7 +77,7 @@ void ConnectionHandler::handle_consume(Request& req) {
     if (!cr.topics.empty() && !cr.topics[0].partitions.empty()) {
         const auto& topic = cr.topics[0];
         const auto& part  = topic.partitions[0];
-        LogManager::instance().send(client_fd_, topic.name, part.fetch_offset, part.max_bytes);
+        LogManager::instance().send(client_fd_, cr.header.correlation_id, topic.name, part.fetch_offset, part.max_bytes);
     }
 }
 

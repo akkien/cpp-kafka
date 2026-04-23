@@ -1,4 +1,6 @@
 #include "broker/topic_state.h"
+#include "common/message.h"
+#include "common/serialize.h"
 
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -69,31 +71,62 @@ uint64_t TopicState::append(Batch& batch) {
 }
 
 // TODO: handle max_bytes
-bool TopicState::send(int const& client_fd, uint64_t offset, [[maybe_unused]] uint32_t max_bytes) {
+bool TopicState::send(int const& client_fd, int32_t correlation_id, uint64_t offset, [[maybe_unused]] uint32_t max_bytes) {
     std::shared_lock lock(mu_);
 
-    // If offset is greater than or equal to the last record's offset, return 0 bytes
+    off_t batch_offset = 0;
+    off_t amt_to_send = 0;
+    int16_t error_code = 0;
+
     if (offset >= next_msg_offset_) {
-        off_t amt_to_send = 0;
-        ::send(client_fd, &amt_to_send, sizeof(amt_to_send), 0);
-        return true;
-    }
-
-    int  index_idx    = find_index_by_msg_offset(indexes_, offset);
-    auto batch_offset = indexes_[index_idx].byte_offset;
-
-    off_t end = next_log_offset_;
-    std::cout << "[LogManager::send] end: " << end << std::endl;
-    off_t amt_to_send = end - batch_offset;
-    if (amt_to_send <= 0) {
+        error_code = 0; // Success but empty
         amt_to_send = 0;
-        ::send(client_fd, &amt_to_send, sizeof(amt_to_send), 0);
-        return false;
+    } else {
+        int index_idx = find_index_by_msg_offset(indexes_, offset);
+        batch_offset = indexes_[index_idx].byte_offset;
+        amt_to_send = next_log_offset_ - batch_offset;
+        if (amt_to_send < 0) amt_to_send = 0;
     }
-    ::send(client_fd, &amt_to_send, sizeof(amt_to_send), 0);
-    std::cout << "[LogManager::send] amt_to_send: " << amt_to_send << std::endl;
-    int res = ::sendfile(log_fd_, client_fd, batch_offset, &amt_to_send, NULL, 0);
-    return res == 0;
+
+    // Build FetchResponse header
+    FetchResponse res;
+    res.correlation_id = correlation_id;
+    res.throttle_time_ms = 0;
+
+    TopicFetchResponse t_res;
+    t_res.name = topic_name_;
+    
+    PartitionFetchResponse p_res;
+    p_res.partition_index = 0;
+    p_res.error_code = error_code;
+    p_res.high_watermark = static_cast<int64_t>(next_msg_offset_);
+    p_res.last_stable_offset = static_cast<int64_t>(next_msg_offset_);
+    p_res.log_start_offset = 0;
+    
+    t_res.partitions.push_back(p_res);
+    res.topics.push_back(t_res);
+
+    std::string header_buf = serialize_fetch_response_header(res);
+    
+    // Total size = header_buf + 4 (record_set_size) + amt_to_send
+    int32_t total_size = static_cast<int32_t>(header_buf.size() + 4 + amt_to_send);
+    
+    std::string final_header;
+    encode_int32(final_header, total_size);
+    final_header += header_buf;
+    encode_int32(final_header, static_cast<int32_t>(amt_to_send));
+
+    // 1. Send header
+    if (::send(client_fd, final_header.data(), final_header.size(), 0) < 0) return false;
+
+    // 2. Send file data if any
+    if (amt_to_send > 0) {
+        off_t sent = amt_to_send;
+        int res_sf = ::sendfile(log_fd_, client_fd, batch_offset, &sent, NULL, 0);
+        return res_sf == 0;
+    }
+
+    return true;
 }
 
 void TopicState::open_log_file() {
