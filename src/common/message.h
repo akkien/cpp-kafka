@@ -11,18 +11,30 @@ enum class ReqType : int16_t {
     CONSUME = 1,
 };
 
-struct ConsumeRequest {
-    ReqType     api_key;
-    std::string topic;
-    uint64_t    offset;
-    uint32_t    max_bytes;
-};
-
 struct RequestHeader {
     int16_t     api_key;
     int16_t     api_version;
     int32_t     correlation_id;
     std::string client_id;  // nullable string
+};
+
+struct PartitionConsumeData {
+    int32_t  partition_index;
+    int64_t  fetch_offset;
+    int32_t  max_bytes;
+};
+
+struct TopicConsumeData {
+    std::string                name;
+    std::vector<PartitionConsumeData> partitions;
+};
+
+struct ConsumeRequest {
+    RequestHeader               header;
+    int32_t                     replica_id;
+    int32_t                     max_wait_time;
+    int32_t                     min_bytes;
+    std::vector<TopicConsumeData> topics;
 };
 
 struct PartitionProduceData {

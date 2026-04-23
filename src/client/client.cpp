@@ -84,10 +84,25 @@ int64_t Client::produce(const std::string& topic, const std::string& key, const 
 /// max_bytes is not upper bound of data size.
 std::vector<Batch> Client::consume(const std::string& topic, uint64_t& offset, uint32_t max_bytes) {
     ConsumeRequest consume_request;
-    consume_request.api_key   = ReqType::CONSUME;
-    consume_request.topic     = topic;
-    consume_request.offset    = offset;
-    consume_request.max_bytes = max_bytes;
+    consume_request.header.api_key        = static_cast<int16_t>(ReqType::CONSUME);
+    consume_request.header.api_version    = 3;
+    consume_request.header.correlation_id = 2;
+    consume_request.header.client_id      = "mini-kafka-client";
+    
+    consume_request.replica_id    = -1;
+    consume_request.max_wait_time = 500;
+    consume_request.min_bytes     = 1;
+
+    PartitionConsumeData p_data;
+    p_data.partition_index = 0;
+    p_data.fetch_offset    = static_cast<int64_t>(offset);
+    p_data.max_bytes       = static_cast<int32_t>(max_bytes);
+
+    TopicConsumeData t_data;
+    t_data.name = topic;
+    t_data.partitions.push_back(p_data);
+
+    consume_request.topics.push_back(t_data);
 
     if (!conn_.send(serialize_consume_request(consume_request)))
         return {};

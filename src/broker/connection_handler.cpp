@@ -44,7 +44,7 @@ void ConnectionHandler::handle_produce(Request& req) {
     auto& pr = std::get<ProduceRequest>(req);
     // Prepare ProduceResponse
     ProduceResponse res;
-    res.correlation_id = pr.header.correlation_id;
+    res.correlation_id   = pr.header.correlation_id;
     res.throttle_time_ms = 0;
 
     for (auto& topic : pr.topics) {
@@ -53,13 +53,13 @@ void ConnectionHandler::handle_produce(Request& req) {
         for (auto& part : topic.partitions) {
             PartitionProduceResponse part_res;
             part_res.partition_index = part.partition_index;
-            part_res.error_code = 0; // Success
-            
+            part_res.error_code      = 0;  // Success
+
             // Append and get the base offset
-            part_res.base_offset = LogManager::instance().append(topic.name, part.records);
-            part_res.log_append_time = std::chrono::system_clock::now().time_since_epoch().count() / 1000000; // ms
+            part_res.base_offset      = LogManager::instance().append(topic.name, part.records);
+            part_res.log_append_time  = std::chrono::system_clock::now().time_since_epoch().count() / 1000000;  // ms
             part_res.log_start_offset = 0;
-            
+
             topic_res.partitions.push_back(part_res);
         }
         res.topics.push_back(topic_res);
@@ -71,7 +71,14 @@ void ConnectionHandler::handle_produce(Request& req) {
 
 void ConnectionHandler::handle_consume(Request& req) {
     auto& cr = std::get<ConsumeRequest>(req);
-    LogManager::instance().send(client_fd_, cr.topic, cr.offset, cr.max_bytes);
+
+    // Process consume request for the first topic and partition in the list, since we don't support multiple
+    // topics/partitions yet
+    if (!cr.topics.empty() && !cr.topics[0].partitions.empty()) {
+        const auto& topic = cr.topics[0];
+        const auto& part  = topic.partitions[0];
+        LogManager::instance().send(client_fd_, topic.name, part.fetch_offset, part.max_bytes);
+    }
 }
 
 void ConnectionHandler::handle_list_topics() {

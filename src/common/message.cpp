@@ -46,27 +46,29 @@ std::string serialize_produce_request(const ProduceRequest& req) {
 
 std::string serialize_consume_request(const ConsumeRequest& req) {
     std::string body;
+    encode_int16(body, req.header.api_key);
+    encode_int16(body, req.header.api_version);
+    encode_int32(body, req.header.correlation_id);
+    encode_nullable_string(body, req.header.client_id);
 
-    // api_key (2 bytes)
-    uint16_t api_key_net = htons(static_cast<uint16_t>(req.api_key));
-    body.append(reinterpret_cast<const char*>(&api_key_net), sizeof(api_key_net));
+    encode_int32(body, req.replica_id);
+    encode_int32(body, req.max_wait_time);
+    encode_int32(body, req.min_bytes);
 
-    // topic
-    encode_varint(body, req.topic.size());
-    body += req.topic;
+    encode_int32(body, static_cast<int32_t>(req.topics.size()));
+    for (const auto& topic : req.topics) {
+        encode_string(body, topic.name);
+        encode_int32(body, static_cast<int32_t>(topic.partitions.size()));
+        for (const auto& part : topic.partitions) {
+            encode_int32(body, part.partition_index);
+            encode_int64(body, part.fetch_offset);
+            encode_int32(body, part.max_bytes);
+        }
+    }
 
-    // offset
-    encode_varint(body, req.offset);
-
-    // max_bytes
-    encode_varint(body, req.max_bytes);
-
-    // Prepend 4-byte total size
     std::string final_buf;
-    uint32_t    size_net = htonl(static_cast<uint32_t>(body.size()));
-    final_buf.append(reinterpret_cast<const char*>(&size_net), sizeof(size_net));
+    encode_int32(final_buf, static_cast<int32_t>(body.size()));
     final_buf += body;
-
     return final_buf;
 }
 
@@ -131,26 +133,51 @@ bool parse_produce_request(const char* data, size_t len, ProduceRequest& req) {
 }
 
 bool parse_consume_request(const char* data, size_t len, ConsumeRequest& req) {
-    req.api_key  = ReqType::CONSUME;
-    size_t   pos = 2;  // skip api_key
-    uint64_t val = 0;
+    size_t pos = 0;
+    int    read;
 
-    // topic length
-    int bytes = decode_varint(data + pos, len - pos, val);
-    if (bytes < 0)
-        return false;
-    pos += bytes;
+    read = decode_int16(data + pos, len - pos, req.header.api_key);
+    if (read < 0) return false; pos += read;
+    read = decode_int16(data + pos, len - pos, req.header.api_version);
+    if (read < 0) return false; pos += read;
+    read = decode_int32(data + pos, len - pos, req.header.correlation_id);
+    if (read < 0) return false; pos += read;
+    read = decode_nullable_string(data + pos, len - pos, req.header.client_id);
+    if (read < 0) return false; pos += read;
 
-    // topic string
-    if (pos + val > len)
-        return false;
-    req.topic.assign(data + pos, val);
-    pos += val;
+    read = decode_int32(data + pos, len - pos, req.replica_id);
+    if (read < 0) return false; pos += read;
+    read = decode_int32(data + pos, len - pos, req.max_wait_time);
+    if (read < 0) return false; pos += read;
+    read = decode_int32(data + pos, len - pos, req.min_bytes);
+    if (read < 0) return false; pos += read;
 
-    pos += decode_varint(data + pos, len - pos, req.offset);
+    int32_t topic_count;
+    read = decode_int32(data + pos, len - pos, topic_count);
+    if (read < 0) return false; pos += read;
 
-    decode_varint(data + pos, len - pos, val);
-    req.max_bytes = static_cast<uint32_t>(val);
+    for (int i = 0; i < topic_count; ++i) {
+        TopicConsumeData topic;
+        read = decode_string(data + pos, len - pos, topic.name);
+        if (read < 0) return false; pos += read;
+
+        int32_t part_count;
+        read = decode_int32(data + pos, len - pos, part_count);
+        if (read < 0) return false; pos += read;
+
+        for (int j = 0; j < part_count; ++j) {
+            PartitionConsumeData part;
+            read = decode_int32(data + pos, len - pos, part.partition_index);
+            if (read < 0) return false; pos += read;
+            read = decode_int64(data + pos, len - pos, part.fetch_offset);
+            if (read < 0) return false; pos += read;
+            read = decode_int32(data + pos, len - pos, part.max_bytes);
+            if (read < 0) return false; pos += read;
+            topic.partitions.push_back(std::move(part));
+        }
+        req.topics.push_back(std::move(topic));
+    }
+
     return true;
 }
 

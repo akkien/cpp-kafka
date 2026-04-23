@@ -51,24 +51,41 @@ TEST(MessageTest, ProduceRequestSerializeDeserialize) {
 
 TEST(MessageTest, ConsumeRequestSerializeDeserialize) {
     ConsumeRequest req;
-    req.api_key = ReqType::CONSUME;
-    req.topic = "test-topic";
-    req.offset = 12345;
-    req.max_bytes = 4096;
+    req.header.api_key = static_cast<int16_t>(ReqType::CONSUME);
+    req.header.api_version = 3;
+    req.header.correlation_id = 123;
+    req.header.client_id = "test-client";
+    
+    req.replica_id = -1;
+    req.max_wait_time = 1000;
+    req.min_bytes = 1;
+    
+    PartitionConsumeData p_data;
+    p_data.partition_index = 0;
+    p_data.fetch_offset = 12345;
+    p_data.max_bytes = 4096;
+    
+    TopicConsumeData t_data;
+    t_data.name = "test-topic";
+    t_data.partitions.push_back(p_data);
+    
+    req.topics.push_back(t_data);
     
     std::string serialized = serialize_consume_request(req);
     EXPECT_GT(serialized.size(), 4);
     
     ConsumeRequest decoded;
-    // Skip the 4 byte header for parsing
     bool success = parse_consume_request(serialized.data() + 4, serialized.size() - 4, decoded);
     EXPECT_TRUE(success);
     
-    EXPECT_EQ(decoded.api_key, ReqType::CONSUME);
-    EXPECT_EQ(decoded.topic, "test-topic");
-    EXPECT_EQ(decoded.offset, 12345);
-    EXPECT_EQ(decoded.max_bytes, 4096);
+    EXPECT_EQ(decoded.header.api_key, static_cast<int16_t>(ReqType::CONSUME));
+    EXPECT_EQ(decoded.header.client_id, "test-client");
+    ASSERT_EQ(decoded.topics.size(), 1);
+    EXPECT_EQ(decoded.topics[0].name, "test-topic");
+    ASSERT_EQ(decoded.topics[0].partitions.size(), 1);
+    EXPECT_EQ(decoded.topics[0].partitions[0].fetch_offset, 12345);
 }
+
 
 TEST(MessageTest, ProduceResponseSerializeDeserialize) {
     ProduceResponse res;
