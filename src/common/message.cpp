@@ -9,21 +9,36 @@
 std::string serialize_produce_request(const ProduceRequest& req) {
     std::string body;
 
-    // api_key (2 bytes, big-endian)
-    uint16_t api_key_net = htons(static_cast<uint16_t>(req.api_key));
-    body.append(reinterpret_cast<const char*>(&api_key_net), sizeof(api_key_net));
+    // header
+    encode_int16(body, req.header.api_key);
+    encode_int16(body, req.header.api_version);
+    encode_int32(body, req.header.correlation_id);
+    encode_nullable_string(body, req.header.client_id);
 
-    // topic
-    encode_varint(body, req.topic.size());
-    body += req.topic;
+    // body
+    encode_nullable_string(body, req.transactional_id);
+    encode_int16(body, req.acks);
+    encode_int32(body, req.timeout_ms);
 
-    // batch
-    body += serialize_batch(req.batch);
+    // topics array
+    encode_int32(body, static_cast<int32_t>(req.topics.size()));
+    for (const auto& topic : req.topics) {
+        encode_string(body, topic.name);
+
+        // partitions array
+        encode_int32(body, static_cast<int32_t>(topic.partitions.size()));
+        for (const auto& part : topic.partitions) {
+            encode_int32(body, part.partition_index);
+            
+            std::string batch_data = serialize_batch(part.records);
+            encode_int32(body, static_cast<int32_t>(batch_data.size()));
+            body += batch_data;
+        }
+    }
 
     // Prepend 4-byte total size
     std::string final_buf;
-    uint32_t    size_net = htonl(static_cast<uint32_t>(body.size()));
-    final_buf.append(reinterpret_cast<const char*>(&size_net), sizeof(size_net));
+    encode_int32(final_buf, static_cast<int32_t>(body.size()));
     final_buf += body;
 
     return final_buf;
@@ -56,24 +71,63 @@ std::string serialize_consume_request(const ConsumeRequest& req) {
 }
 
 bool parse_produce_request(const char* data, size_t len, ProduceRequest& req) {
-    req.api_key  = ReqType::PRODUCE;
-    size_t   pos = 2;  // skip api_key
-    uint64_t val = 0;
+    size_t pos = 0;
+    
+    // Read header
+    int read = decode_int16(data + pos, len - pos, req.header.api_key);
+    if (read < 0) return false; pos += read;
+    
+    read = decode_int16(data + pos, len - pos, req.header.api_version);
+    if (read < 0) return false; pos += read;
+    
+    read = decode_int32(data + pos, len - pos, req.header.correlation_id);
+    if (read < 0) return false; pos += read;
+    
+    read = decode_nullable_string(data + pos, len - pos, req.header.client_id);
+    if (read < 0) return false; pos += read;
 
-    // topic length
-    int bytes = decode_varint(data + pos, len - pos, val);
-    if (bytes < 0)
-        return false;
-    pos += bytes;
+    // Read body
+    read = decode_nullable_string(data + pos, len - pos, req.transactional_id);
+    if (read < 0) return false; pos += read;
+    
+    read = decode_int16(data + pos, len - pos, req.acks);
+    if (read < 0) return false; pos += read;
+    
+    read = decode_int32(data + pos, len - pos, req.timeout_ms);
+    if (read < 0) return false; pos += read;
 
-    // topic string
-    if (pos + val > len)
-        return false;
-    req.topic.assign(data + pos, val);
-    pos += val;
+    // Read topics array
+    int32_t topics_count;
+    read = decode_int32(data + pos, len - pos, topics_count);
+    if (read < 0) return false; pos += read;
+    
+    for (int32_t i = 0; i < topics_count; ++i) {
+        TopicProduceData topic;
+        read = decode_string(data + pos, len - pos, topic.name);
+        if (read < 0) return false; pos += read;
+        
+        int32_t parts_count;
+        read = decode_int32(data + pos, len - pos, parts_count);
+        if (read < 0) return false; pos += read;
+        
+        for (int32_t j = 0; j < parts_count; ++j) {
+            PartitionProduceData part;
+            read = decode_int32(data + pos, len - pos, part.partition_index);
+            if (read < 0) return false; pos += read;
+            
+            read = decode_int32(data + pos, len - pos, part.records_size);
+            if (read < 0) return false; pos += read;
+            
+            if (pos + part.records_size > len) return false;
+            if (!deserialize_batch(data + pos, part.records_size, part.records)) return false;
+            pos += part.records_size;
+            
+            topic.partitions.push_back(std::move(part));
+        }
+        req.topics.push_back(std::move(topic));
+    }
 
-    // batch
-    return deserialize_batch(data + pos, len - pos, req.batch);
+    return true;
 }
 
 bool parse_consume_request(const char* data, size_t len, ConsumeRequest& req) {

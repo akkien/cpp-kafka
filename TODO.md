@@ -3,6 +3,7 @@
 - use epoll in broker 
 - page cache ?
 - add more fields to message
+- check fields in produce_message and process of serializing it
 
 - learn C++ concurrency primitive: https://dev.to/min38/thread-pool-3ema
 

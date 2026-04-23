@@ -3,13 +3,30 @@
 
 TEST(MessageTest, ProduceRequestSerializeDeserialize) {
     ProduceRequest req;
-    req.api_key = ReqType::PRODUCE;
-    req.topic = "test-topic";
+    req.header.api_key = static_cast<int16_t>(ReqType::PRODUCE);
+    req.header.api_version = 3;
+    req.header.correlation_id = 42;
+    req.header.client_id = "test-client";
+    req.transactional_id = "";
+    req.acks = 1;
+    req.timeout_ms = 500;
     
     Record rec;
     rec.length = 5;
     rec.value = "hello";
-    req.batch.records.push_back(std::move(rec));
+    
+    Batch batch;
+    batch.records.push_back(std::move(rec));
+    
+    PartitionProduceData part;
+    part.partition_index = 0;
+    part.records = std::move(batch);
+    
+    TopicProduceData topic;
+    topic.name = "test-topic";
+    topic.partitions.push_back(std::move(part));
+    
+    req.topics.push_back(std::move(topic));
     
     std::string serialized = serialize_produce_request(req);
     
@@ -21,10 +38,15 @@ TEST(MessageTest, ProduceRequestSerializeDeserialize) {
     bool success = parse_produce_request(serialized.data() + 4, serialized.size() - 4, decoded);
     EXPECT_TRUE(success);
     
-    EXPECT_EQ(decoded.api_key, ReqType::PRODUCE);
-    EXPECT_EQ(decoded.topic, "test-topic");
-    ASSERT_EQ(decoded.batch.records.size(), 1);
-    EXPECT_EQ(decoded.batch.records[0].value, "hello");
+    EXPECT_EQ(decoded.header.api_key, static_cast<int16_t>(ReqType::PRODUCE));
+    EXPECT_EQ(decoded.header.client_id, "test-client");
+    EXPECT_EQ(decoded.timeout_ms, 500);
+    ASSERT_EQ(decoded.topics.size(), 1);
+    EXPECT_EQ(decoded.topics[0].name, "test-topic");
+    ASSERT_EQ(decoded.topics[0].partitions.size(), 1);
+    EXPECT_EQ(decoded.topics[0].partitions[0].partition_index, 0);
+    ASSERT_EQ(decoded.topics[0].partitions[0].records.records.size(), 1);
+    EXPECT_EQ(decoded.topics[0].partitions[0].records.records[0].value, "hello");
 }
 
 TEST(MessageTest, ConsumeRequestSerializeDeserialize) {

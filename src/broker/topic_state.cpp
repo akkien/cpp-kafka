@@ -73,7 +73,6 @@ uint64_t TopicState::append(Batch& batch) {
 }
 
 // TODO: handle max_bytes
-// TODO: can remove lock here? this is just read
 bool TopicState::send(int const& client_fd, uint64_t offset, uint32_t max_bytes) {
     std::shared_lock lock(mu_);
 

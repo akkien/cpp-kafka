@@ -15,8 +15,13 @@ bool Client::connect() {
 
 int64_t Client::produce(const std::string& topic, const std::string& key, const std::vector<std::string>& messages) {
     ProduceRequest produce_request;
-    produce_request.api_key = ReqType::PRODUCE;
-    produce_request.topic   = topic;
+    produce_request.header.api_key        = static_cast<int16_t>(ReqType::PRODUCE);
+    produce_request.header.api_version    = 3;
+    produce_request.header.correlation_id = 1;
+    produce_request.header.client_id      = "mini-kafka-client";
+    produce_request.transactional_id      = "";
+    produce_request.acks                  = 1;
+    produce_request.timeout_ms            = 1000;
 
     int64_t timestamp = std::chrono::system_clock::now().time_since_epoch().count();
     Batch   batch;
@@ -35,7 +40,16 @@ int64_t Client::produce(const std::string& topic, const std::string& key, const 
 
     batch.records_count     = messages.size();
     batch.last_offset_delta = offset_delta - 1;
-    produce_request.batch   = batch;
+
+    PartitionProduceData part;
+    part.partition_index = 0;
+    part.records         = batch;
+
+    TopicProduceData tpd;
+    tpd.name = topic;
+    tpd.partitions.push_back(std::move(part));
+
+    produce_request.topics.push_back(std::move(tpd));
 
     std::cout << "before serialize" << std::endl;
     if (!conn_.send(serialize_produce_request(produce_request))) {

@@ -6,15 +6,9 @@
 
 #include "common/batch.h"
 
-enum class ReqType : uint16_t {
+enum class ReqType : int16_t {
     PRODUCE = 0,
     CONSUME = 1,
-};
-
-struct ProduceRequest {
-    ReqType     api_key;
-    std::string topic;
-    Batch       batch;
 };
 
 struct ConsumeRequest {
@@ -22,6 +16,32 @@ struct ConsumeRequest {
     std::string topic;
     uint64_t    offset;
     uint32_t    max_bytes;
+};
+
+struct RequestHeader {
+    int16_t     api_key;
+    int16_t     api_version;
+    int32_t     correlation_id;
+    std::string client_id;  // nullable string
+};
+
+struct PartitionProduceData {
+    int32_t partition_index;
+    int32_t records_size;
+    Batch   records;
+};
+
+struct TopicProduceData {
+    std::string                       name;
+    std::vector<PartitionProduceData> partitions;
+};
+
+struct ProduceRequest {
+    RequestHeader                 header;
+    std::string                   transactional_id;  // nullable string
+    int16_t                       acks;
+    int32_t                       timeout_ms;
+    std::vector<TopicProduceData> topics;
 };
 
 using Request = std::variant<ProduceRequest, ConsumeRequest>;

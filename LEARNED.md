@@ -205,6 +205,9 @@ April 20, 2026
   
 - low level function in C++ is almost identical to operating system call => need to manually check for different OSArchitecture to ensure cross platform compatibility. 
 
+### Fields of record use varint but header use fixed size?
+Historically, everything is Fixed-size Big Endian. 
+After that, they use varint to save space. However, only fields of record use varint. Other fields remain fixed-size so that old version of application can still parse the message.
 
 
 ## Unique pointer

@@ -41,9 +41,18 @@ void ConnectionHandler::run() {
 
 // ---------------------------------------------------------------------------
 void ConnectionHandler::handle_produce(Request& req) {
-    auto&    pr     = std::get<ProduceRequest>(req);
-    uint64_t offset = LogManager::instance().append(pr.topic, pr.batch);
-    send_response("OK " + std::to_string(offset) + "\n");
+    auto& pr = std::get<ProduceRequest>(req);
+    uint64_t last_offset = 0;
+    for (auto& topic : pr.topics) {
+        for (auto& part : topic.partitions) {
+            // TODO: In a real broker, we would route to the specific partition.
+            // For now, we append everything to the topic's log.
+            last_offset = LogManager::instance().append(topic.name, part.records);
+        }
+    }
+    // We send back the last offset appended.
+    // In a real Kafka ProduceResponse, this would be a structured response with partition info.
+    send_response("OK " + std::to_string(last_offset) + "\n");
 }
 
 void ConnectionHandler::handle_consume(Request& req) {
@@ -60,7 +69,6 @@ void ConnectionHandler::handle_list_topics() {
 }
 
 // ─── Low-level I/O helpers ───────────────────────────────────────────
-// TODO: readline using buffer
 bool ConnectionHandler::read_line(std::string& out) {
     out.clear();
     char c;
