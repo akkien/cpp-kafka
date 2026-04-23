@@ -2,8 +2,9 @@
 
 - use epoll in broker 
 - page cache ?
-- thread: implement section ## Lock
 - add more fields to message
+
+- learn C++ concurrency primitive: https://dev.to/min38/thread-pool-3ema
 
 ## Optimization
 

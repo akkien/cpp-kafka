@@ -42,7 +42,7 @@ TopicState::~TopicState() {
 }
 
 uint64_t TopicState::append(Batch& batch) {
-    std::lock_guard lock(mu_);
+    std::unique_lock lock(mu_);
 
     batch.base_offset = next_msg_offset_;
     next_msg_offset_ += batch.records_count;
@@ -75,7 +75,7 @@ uint64_t TopicState::append(Batch& batch) {
 // TODO: handle max_bytes
 // TODO: can remove lock here? this is just read
 bool TopicState::send(int const& client_fd, uint64_t offset, uint32_t max_bytes) {
-    std::lock_guard lock(mu_);
+    std::shared_lock lock(mu_);
 
     // If offset is greater than or equal to the last record's offset, return 0 bytes
     if (offset >= next_msg_offset_) {
@@ -87,7 +87,7 @@ bool TopicState::send(int const& client_fd, uint64_t offset, uint32_t max_bytes)
     int  index_idx    = find_index_by_msg_offset(indexes_, offset);
     auto batch_offset = indexes_[index_idx].byte_offset;
 
-    off_t end = ::lseek(log_fd_, 0, SEEK_END);
+    off_t end = next_log_offset_;
     std::cout << "[LogManager::send] end: " << end << std::endl;
     off_t amt_to_send = end - batch_offset;
     if (amt_to_send <= 0) {

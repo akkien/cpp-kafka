@@ -1,4 +1,5 @@
 #include <mutex>
+#include <shared_mutex>
 #include <vector>
 
 #include "common/batch.h"
@@ -31,16 +32,16 @@ public:
     friend std::ostream& operator<<(std::ostream& os, const TopicState& s);
 
 private:
-    std::string             data_dir_;
-    std::string             topic_name_;
-    std::mutex              mu_;
-    int                     log_fd_{-1};          // File descriptor for the .log file
-    uint64_t                next_log_offset_{0};  // Next available byte offset
-    int                     idx_fd_{-1};          // File descriptor for the .idx file
-    uint64_t                next_idx_offset_{0};  // Next available byte offset of index file
-    std::vector<IndexEntry> indexes_;
-    uint64_t                next_msg_offset_{0};
-    uint16_t                bytes_since_last_index_{0};
+    std::string               data_dir_;
+    std::string               topic_name_;
+    mutable std::shared_mutex mu_;
+    int                       log_fd_{-1};          // File descriptor for the .log file
+    uint64_t                  next_log_offset_{0};  // Next available byte offset
+    int                       idx_fd_{-1};          // File descriptor for the .idx file
+    uint64_t                  next_idx_offset_{0};  // Next available byte offset of index file
+    std::vector<IndexEntry>   indexes_;
+    uint64_t                  next_msg_offset_{0};
+    uint16_t                  bytes_since_last_index_{0};
 
     void  open_log_file();
     void  open_index_file();
