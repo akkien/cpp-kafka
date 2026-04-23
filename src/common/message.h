@@ -44,10 +44,31 @@ struct ProduceRequest {
     std::vector<TopicProduceData> topics;
 };
 
+struct PartitionProduceResponse {
+    int32_t  partition_index;
+    int16_t  error_code;
+    int64_t  base_offset;
+    int64_t  log_append_time;
+    int64_t  log_start_offset;
+};
+
+struct TopicProduceResponse {
+    std::string                         name;
+    std::vector<PartitionProduceResponse> partitions;
+};
+
+struct ProduceResponse {
+    int32_t                         correlation_id;
+    std::vector<TopicProduceResponse> topics;
+    int32_t                         throttle_time_ms;
+};
+
 using Request = std::variant<ProduceRequest, ConsumeRequest>;
 
 std::string serialize_produce_request(const ProduceRequest& req);
 std::string serialize_consume_request(const ConsumeRequest& req);
+std::string serialize_produce_response(const ProduceResponse& res);
 
 bool parse_produce_request(const char* data, size_t len, ProduceRequest& req);
 bool parse_consume_request(const char* data, size_t len, ConsumeRequest& req);
+bool parse_produce_response(const char* data, size_t len, ProduceResponse& res);

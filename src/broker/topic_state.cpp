@@ -69,7 +69,7 @@ uint64_t TopicState::append(Batch& batch) {
 }
 
 // TODO: handle max_bytes
-bool TopicState::send(int const& client_fd, uint64_t offset, uint32_t max_bytes) {
+bool TopicState::send(int const& client_fd, uint64_t offset, [[maybe_unused]] uint32_t max_bytes) {
     std::shared_lock lock(mu_);
 
     // If offset is greater than or equal to the last record's offset, return 0 bytes

@@ -42,17 +42,31 @@ void ConnectionHandler::run() {
 // ---------------------------------------------------------------------------
 void ConnectionHandler::handle_produce(Request& req) {
     auto& pr = std::get<ProduceRequest>(req);
-    uint64_t last_offset = 0;
+    // Prepare ProduceResponse
+    ProduceResponse res;
+    res.correlation_id = pr.header.correlation_id;
+    res.throttle_time_ms = 0;
+
     for (auto& topic : pr.topics) {
+        TopicProduceResponse topic_res;
+        topic_res.name = topic.name;
         for (auto& part : topic.partitions) {
-            // TODO: In a real broker, we would route to the specific partition.
-            // For now, we append everything to the topic's log.
-            last_offset = LogManager::instance().append(topic.name, part.records);
+            PartitionProduceResponse part_res;
+            part_res.partition_index = part.partition_index;
+            part_res.error_code = 0; // Success
+            
+            // Append and get the base offset
+            part_res.base_offset = LogManager::instance().append(topic.name, part.records);
+            part_res.log_append_time = std::chrono::system_clock::now().time_since_epoch().count() / 1000000; // ms
+            part_res.log_start_offset = 0;
+            
+            topic_res.partitions.push_back(part_res);
         }
+        res.topics.push_back(topic_res);
     }
-    // We send back the last offset appended.
-    // In a real Kafka ProduceResponse, this would be a structured response with partition info.
-    send_response("OK " + std::to_string(last_offset) + "\n");
+
+    std::string response_buf = serialize_produce_response(res);
+    ::send(client_fd_, response_buf.data(), response_buf.size(), 0);
 }
 
 void ConnectionHandler::handle_consume(Request& req) {

@@ -1,4 +1,5 @@
 #include "client/client.h"
+#include "common/serialize.h"
 
 #include <unistd.h>
 
@@ -57,14 +58,26 @@ int64_t Client::produce(const std::string& topic, const std::string& key, const 
         return -1;
     }
 
-    std::string response;
-    if (!conn_.read_line(response))
+    std::string response_size_buf;
+    if (!conn_.read_bytes(response_size_buf, 4))
+        return -1;
+    
+    int32_t response_size;
+    decode_int32(response_size_buf.data(), 4, response_size);
+
+    std::string response_body;
+    if (!conn_.read_bytes(response_body, response_size))
         return -1;
 
-    // Expected: "OK <offset>"
-    if (response.substr(0, 3) != "OK ")
+    ProduceResponse res;
+    if (!parse_produce_response(response_body.data(), response_body.size(), res))
         return -1;
-    return std::stoll(response.substr(3));
+
+    // Return the offset from the first partition of the first topic for simplicity
+    if (!res.topics.empty() && !res.topics[0].partitions.empty()) {
+        return res.topics[0].partitions[0].base_offset;
+    }
+    return 0;
 }
 
 /// @dev max_bytes in kafka means whenever the data is more than that, stop reading.
