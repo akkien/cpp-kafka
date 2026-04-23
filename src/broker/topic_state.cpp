@@ -48,26 +48,22 @@ uint64_t TopicState::append(Batch& batch) {
     next_msg_offset_ += batch.records_count;
 
     std::string payload = serialize_batch(batch);
+    uint32_t    size    = static_cast<uint32_t>(payload.size());
 
     uint64_t cur_offset = next_log_offset_;
-    uint32_t size       = static_cast<uint32_t>(payload.size());
-
-    // Write header: offset (8 B) + size (4 B)
     ::lseek(log_fd_, static_cast<off_t>(cur_offset), SEEK_SET);
-    ::write(log_fd_, &cur_offset, sizeof(cur_offset));
-    ::write(log_fd_, &size, sizeof(size));
     ::write(log_fd_, payload.data(), size);
 
-    bytes_since_last_index_ += kMessageHeaderSize + size;
+    bytes_since_last_index_ += size;
     if (bytes_since_last_index_ > INDEX_INTERVAL) {
         IndexEntry entry = {batch.base_offset, cur_offset};
         ::lseek(idx_fd_, static_cast<off_t>(next_idx_offset_), SEEK_SET);
         ::write(idx_fd_, &entry, sizeof(IndexEntry));
         indexes_.push_back(entry);
-        bytes_since_last_index_ = kMessageHeaderSize + size;
+        bytes_since_last_index_ = size;
         next_idx_offset_ += sizeof(IndexEntry);
     }
-    next_log_offset_ = cur_offset + kMessageHeaderSize + size;
+    next_log_offset_ = cur_offset + size;
     std::cout << "State after append: " << *this << std::endl;
     return cur_offset;
 }

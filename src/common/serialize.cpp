@@ -1,6 +1,7 @@
 #include "common/serialize.h"
 
 #include <arpa/inet.h>
+
 #include <cstring>
 #include <string>
 
@@ -31,7 +32,8 @@ void encode_int16(std::string& buf, int16_t value) {
 }
 
 int decode_int16(const char* buf, size_t n, int16_t& value) {
-    if (n < sizeof(int16_t)) return -1;
+    if (n < sizeof(int16_t))
+        return -1;
     int16_t net_val;
     std::memcpy(&net_val, buf, sizeof(int16_t));
     value = ntohs(net_val);
@@ -44,11 +46,30 @@ void encode_int32(std::string& buf, int32_t value) {
 }
 
 int decode_int32(const char* buf, size_t n, int32_t& value) {
-    if (n < sizeof(int32_t)) return -1;
+    if (n < sizeof(int32_t))
+        return -1;
     int32_t net_val;
     std::memcpy(&net_val, buf, sizeof(int32_t));
     value = ntohl(net_val);
     return sizeof(int32_t);
+}
+
+void encode_int64(std::string& buf, int64_t value) {
+    uint64_t u = static_cast<uint64_t>(value);
+    for (int i = 7; i >= 0; --i) {
+        buf += static_cast<char>((u >> (i * 8)) & 0xFF);
+    }
+}
+
+int decode_int64(const char* buf, size_t n, int64_t& value) {
+    if (n < 8)
+        return -1;
+    uint64_t u = 0;
+    for (int i = 0; i < 8; ++i) {
+        u = (u << 8) | static_cast<uint8_t>(buf[i]);
+    }
+    value = static_cast<int64_t>(u);
+    return 8;
 }
 
 void encode_string(std::string& buf, const std::string& value) {
@@ -58,10 +79,13 @@ void encode_string(std::string& buf, const std::string& value) {
 
 int decode_string(const char* buf, size_t n, std::string& value) {
     int16_t len;
-    int read = decode_int16(buf, n, len);
-    if (read < 0) return -1;
-    if (len < 0) return -1; // Standard string cannot be negative, only nullable string
-    if (n - read < static_cast<size_t>(len)) return -1;
+    int     read = decode_int16(buf, n, len);
+    if (read < 0)
+        return -1;
+    if (len < 0)
+        return -1;  // Standard string cannot be negative, only nullable string
+    if (n - read < static_cast<size_t>(len))
+        return -1;
     value.assign(buf + read, len);
     return read + len;
 }
@@ -77,13 +101,15 @@ void encode_nullable_string(std::string& buf, const std::string& value) {
 
 int decode_nullable_string(const char* buf, size_t n, std::string& value) {
     int16_t len;
-    int read = decode_int16(buf, n, len);
-    if (read < 0) return -1;
+    int     read = decode_int16(buf, n, len);
+    if (read < 0)
+        return -1;
     if (len == -1) {
         value.clear();
         return read;
     }
-    if (len < 0 || n - read < static_cast<size_t>(len)) return -1;
+    if (len < 0 || n - read < static_cast<size_t>(len))
+        return -1;
     value.assign(buf + read, len);
     return read + len;
 }

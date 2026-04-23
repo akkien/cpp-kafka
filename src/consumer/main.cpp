@@ -55,7 +55,7 @@ int main(int argc, char* argv[]) {
         for (const auto& batch : batches) {
             // process each message
             for (const auto& rec : batch.records) {
-                int rec_offset = batch.base_offset + rec.offset_delta;
+                uint64_t rec_offset = batch.base_offset + rec.offset_delta;
                 if (rec_offset < start_offset) {
                     continue;
                 }
