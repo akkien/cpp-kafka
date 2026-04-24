@@ -19,8 +19,16 @@ public:
     /// Connect to the broker. Returns false on failure.
     bool connect();
 
+    /// Build produce request
+    ProduceRequest create_produce_request(const std::string& topic, const std::string& key,
+                                          const std::vector<std::string>& messages);
+
     /// Produce a message to a topic. Returns the offset on success, -1 on error.
     int64_t produce(const std::string& topic, const std::string& key, const std::vector<std::string>& messages);
+
+    bool get_produce_response(ProduceResponse& res);
+
+    ConsumeRequest create_consume_request(const std::string& topic, uint64_t offset, uint32_t max_bytes);
 
     /// Consume messages from a topic starting at the given offset.
     std::vector<Batch> consume(const std::string& topic, uint64_t& offset, uint32_t max_bytes = 4096);

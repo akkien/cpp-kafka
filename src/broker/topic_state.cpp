@@ -1,6 +1,4 @@
 #include "broker/topic_state.h"
-#include "common/message.h"
-#include "common/serialize.h"
 
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -8,6 +6,9 @@
 
 #include <iostream>
 #include <mutex>
+
+#include "common/message.h"
+#include "common/serialize.h"
 
 namespace kafka {
 
@@ -67,62 +68,65 @@ uint64_t TopicState::append(Batch& batch) {
     }
     next_log_offset_ = cur_offset + size;
     std::cout << "State after append: " << *this << std::endl;
-    return cur_offset;
+    return batch.base_offset;
 }
 
 // TODO: handle max_bytes
-bool TopicState::send(int const& client_fd, int32_t correlation_id, uint64_t offset, [[maybe_unused]] uint32_t max_bytes) {
+bool TopicState::send(int const& client_fd, int32_t correlation_id, uint64_t offset,
+                      [[maybe_unused]] uint32_t max_bytes) {
     std::shared_lock lock(mu_);
 
-    off_t batch_offset = 0;
-    off_t amt_to_send = 0;
-    int16_t error_code = 0;
+    off_t   batch_offset = 0;
+    off_t   amt_to_send  = 0;
+    int16_t error_code   = 0;
 
     if (offset >= next_msg_offset_) {
-        error_code = 0; // Success but empty
+        error_code  = 0;  // Success but empty
         amt_to_send = 0;
     } else {
         int index_idx = find_index_by_msg_offset(indexes_, offset);
-        batch_offset = indexes_[index_idx].byte_offset;
-        amt_to_send = next_log_offset_ - batch_offset;
-        if (amt_to_send < 0) amt_to_send = 0;
+        batch_offset  = indexes_[index_idx].byte_offset;
+        amt_to_send   = next_log_offset_ - batch_offset;
+        if (amt_to_send < 0)
+            amt_to_send = 0;
     }
 
     // Build FetchResponse header
     FetchResponse res;
-    res.correlation_id = correlation_id;
+    res.correlation_id   = correlation_id;
     res.throttle_time_ms = 0;
 
     TopicFetchResponse t_res;
     t_res.name = topic_name_;
-    
+
     PartitionFetchResponse p_res;
-    p_res.partition_index = 0;
-    p_res.error_code = error_code;
-    p_res.high_watermark = static_cast<int64_t>(next_msg_offset_);
+    p_res.partition_index    = 0;
+    p_res.error_code         = error_code;
+    p_res.high_watermark     = static_cast<int64_t>(next_msg_offset_);
     p_res.last_stable_offset = static_cast<int64_t>(next_msg_offset_);
-    p_res.log_start_offset = 0;
-    
+    p_res.log_start_offset   = 0;
+
     t_res.partitions.push_back(p_res);
     res.topics.push_back(t_res);
 
     std::string header_buf = serialize_fetch_response_header(res);
-    
+
     // Total size = header_buf + 4 (record_set_size) + amt_to_send
     int32_t total_size = static_cast<int32_t>(header_buf.size() + 4 + amt_to_send);
-    
+
     std::string final_header;
     encode_int32(final_header, total_size);
     final_header += header_buf;
     encode_int32(final_header, static_cast<int32_t>(amt_to_send));
 
     // 1. Send header
-    if (::send(client_fd, final_header.data(), final_header.size(), 0) < 0) return false;
+    if (::send(client_fd, final_header.data(), final_header.size(), 0) < 0)
+        return false;
 
     // 2. Send file data if any
     if (amt_to_send > 0) {
-        off_t sent = amt_to_send;
-        int res_sf = ::sendfile(log_fd_, client_fd, batch_offset, &sent, NULL, 0);
+        off_t sent   = amt_to_send;
+        int   res_sf = ::sendfile(log_fd_, client_fd, batch_offset, &sent, NULL, 0);
         return res_sf == 0;
     }
 
@@ -160,28 +164,46 @@ void TopicState::open_index_file() {
     size_t num_entries = next_idx_offset_ / sizeof(IndexEntry);
     if (num_entries > 0) {
         indexes_.resize(num_entries);
-        ::read(idx_fd_, indexes_.data(), next_idx_offset_);
+        ssize_t r = ::read(idx_fd_, indexes_.data(), num_entries * sizeof(IndexEntry));
+        if (r < 0) {
+            throw std::runtime_error("read(index): " + std::string(std::strerror(errno)));
+        }
     }
 }
 
 Batch TopicState::find_last_batch() {
+    if (indexes_.empty()) {
+        return {};
+    }
     auto last_batch_position = indexes_.back().byte_offset;
 
-    ::lseek(log_fd_, static_cast<off_t>(last_batch_position + 8), SEEK_SET);
-    uint32_t batch_size;
-    ::read(log_fd_, &batch_size, sizeof(batch_size));
+    // Read batch_length (4 bytes at offset 8)
+    auto read_batch_size = [this](uint64_t pos) -> uint32_t {
+        char buf[4];
+        ::lseek(log_fd_, static_cast<off_t>(pos + 8), SEEK_SET);
+        if (::read(log_fd_, buf, 4) != 4)
+            return 0;
+        int32_t val;
+        decode_int32(buf, 4, val);
+        return static_cast<uint32_t>(val);
+    };
+
+    uint32_t batch_size = read_batch_size(last_batch_position);
     // keep reading until we reach last batch
-    while (last_batch_position + 8 + 4 + batch_size < next_log_offset_) {
-        last_batch_position += 8 + 4 + batch_size;
-        ::lseek(log_fd_, static_cast<off_t>(last_batch_position + 8), SEEK_SET);
-        ::read(log_fd_, &batch_size, sizeof(batch_size));
+    while (last_batch_position + 12 + batch_size < next_log_offset_) {
+        last_batch_position += 12 + batch_size;
+        batch_size = read_batch_size(last_batch_position);
+        if (batch_size == 0)
+            break;  // Avoid infinite loop on corruption
     }
 
-    std::vector<char> batch_buf(batch_size);
+    size_t            total_size = 12 + batch_size;
+    std::vector<char> batch_buf(total_size);
     Batch             last_batch;
-    ::lseek(log_fd_, static_cast<off_t>(last_batch_position + 8 + 4), SEEK_SET);
-    ::read(log_fd_, batch_buf.data(), batch_size);
-    deserialize_batch(batch_buf.data(), batch_size, last_batch);
+    ::lseek(log_fd_, static_cast<off_t>(last_batch_position), SEEK_SET);
+    if (::read(log_fd_, batch_buf.data(), total_size) == static_cast<ssize_t>(total_size)) {
+        deserialize_batch(batch_buf.data(), total_size, last_batch);
+    }
     return last_batch;
 }
 

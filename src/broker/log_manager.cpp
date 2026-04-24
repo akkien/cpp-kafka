@@ -25,7 +25,9 @@ LogManager::LogManager() {
     fs::create_directories(data_dir_);
     try {
         for (const auto& entry : fs::directory_iterator(data_dir_)) {
-            get_or_create(entry.path().stem().string());
+            if (entry.path().extension() == ".log") {
+                get_or_create(entry.path().stem().string());
+            }
         }
     } catch (const fs::filesystem_error& e) {
         std::cerr << "Error: " << e.what() << "\n";

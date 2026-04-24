@@ -56,7 +56,8 @@ void ConnectionHandler::handle_produce(Request& req) {
             part_res.error_code      = 0;  // Success
 
             // Append and get the base offset
-            part_res.base_offset      = LogManager::instance().append(topic.name, part.records);
+            part_res.base_offset = LogManager::instance().append(topic.name, part.records);
+            std::cout << "[broker] append ok offset=" << part_res.base_offset << std::endl;
             part_res.log_append_time  = std::chrono::system_clock::now().time_since_epoch().count() / 1000000;  // ms
             part_res.log_start_offset = 0;
 
@@ -77,7 +78,8 @@ void ConnectionHandler::handle_consume(Request& req) {
     if (!cr.topics.empty() && !cr.topics[0].partitions.empty()) {
         const auto& topic = cr.topics[0];
         const auto& part  = topic.partitions[0];
-        LogManager::instance().send(client_fd_, cr.header.correlation_id, topic.name, part.fetch_offset, part.max_bytes);
+        LogManager::instance().send(client_fd_, cr.header.correlation_id, topic.name, part.fetch_offset,
+                                    part.max_bytes);
     }
 }
 

@@ -1,10 +1,11 @@
 #include "client/client.h"
-#include "common/serialize.h"
 
 #include <unistd.h>
 
 #include <iostream>
 #include <sstream>
+
+#include "common/serialize.h"
 
 namespace kafka {
 
@@ -15,6 +16,84 @@ bool Client::connect() {
 }
 
 int64_t Client::produce(const std::string& topic, const std::string& key, const std::vector<std::string>& messages) {
+    ProduceRequest produce_request = create_produce_request(topic, key, messages);
+
+    if (!conn_.send(serialize_produce_request(produce_request))) {
+        return -1;
+    }
+
+    ProduceResponse res;
+    if (!get_produce_response(res)) {
+        return -1;
+    }
+
+    // Return the offset from the first partition of the first topic for simplicity
+    if (!res.topics.empty() && !res.topics[0].partitions.empty()) {
+        return res.topics[0].partitions[0].base_offset;
+    }
+    return 0;
+}
+
+/// @dev max_bytes in kafka means whenever the data is more than that, stop reading.
+/// max_bytes is not upper bound of data size.
+std::vector<Batch> Client::consume(const std::string& topic, uint64_t& offset, uint32_t max_bytes) {
+    ConsumeRequest consume_request = create_consume_request(topic, offset, max_bytes);
+
+    if (!conn_.send(serialize_consume_request(consume_request)))
+        return {};
+
+    std::string response_size_buf;
+    if (!conn_.read_bytes(response_size_buf, 4))
+        return {};
+
+    int32_t response_size;
+    decode_int32(response_size_buf.data(), 4, response_size);
+
+    std::string response_body;
+    if (!conn_.read_bytes(response_body, response_size))
+        return {};
+
+    FetchResponse res;
+    std::string   record_set;
+    if (!parse_fetch_response(response_body.data(), response_body.size(), res, record_set))
+        return {};
+
+    std::vector<Batch> batches;
+    const char*        data = record_set.data();
+    size_t             len  = record_set.size();
+    size_t             pos  = 0;
+
+    while (pos < len) {
+        Batch batch;
+        // Each batch in the record_set is a full RecordBatch as stored on disk
+        // which we can deserialize using deserialize_batch.
+        // However, deserialize_batch needs to know how many bytes to read.
+        // In Kafka, the RecordBatch starts with:
+        // [BaseOffset: 8] [BatchLength: 4] ...
+        // The BatchLength is the size of the REST of the batch (after the BatchLength field).
+
+        if (pos + 12 > len)
+            break;
+
+        int32_t batch_length;
+        decode_int32(data + pos + 8, 4, batch_length);
+
+        size_t full_batch_size = 12 + batch_length;
+        if (pos + full_batch_size > len)
+            break;
+
+        if (deserialize_batch(data + pos, full_batch_size, batch)) {
+            batches.push_back(std::move(batch));
+            offset = batches.back().base_offset + batches.back().records.size();
+        }
+        pos += full_batch_size;
+    }
+
+    return batches;
+}
+
+ProduceRequest Client::create_produce_request(const std::string& topic, const std::string& key,
+                                              const std::vector<std::string>& messages) {
     ProduceRequest produce_request;
     produce_request.header.api_key        = static_cast<int16_t>(ReqType::PRODUCE);
     produce_request.header.api_version    = 3;
@@ -51,44 +130,34 @@ int64_t Client::produce(const std::string& topic, const std::string& key, const 
     tpd.partitions.push_back(std::move(part));
 
     produce_request.topics.push_back(std::move(tpd));
+    return produce_request;
+}
 
-    std::cout << "before serialize" << std::endl;
-    if (!conn_.send(serialize_produce_request(produce_request))) {
-        std::cout << "after serialize" << std::endl;
-        return -1;
-    }
-
+bool Client::get_produce_response(ProduceResponse& res) {
     std::string response_size_buf;
     if (!conn_.read_bytes(response_size_buf, 4))
-        return -1;
-    
+        return false;
+
     int32_t response_size;
     decode_int32(response_size_buf.data(), 4, response_size);
 
     std::string response_body;
     if (!conn_.read_bytes(response_body, response_size))
-        return -1;
+        return false;
 
-    ProduceResponse res;
     if (!parse_produce_response(response_body.data(), response_body.size(), res))
-        return -1;
+        return false;
 
-    // Return the offset from the first partition of the first topic for simplicity
-    if (!res.topics.empty() && !res.topics[0].partitions.empty()) {
-        return res.topics[0].partitions[0].base_offset;
-    }
-    return 0;
+    return true;
 }
 
-/// @dev max_bytes in kafka means whenever the data is more than that, stop reading.
-/// max_bytes is not upper bound of data size.
-std::vector<Batch> Client::consume(const std::string& topic, uint64_t& offset, uint32_t max_bytes) {
+ConsumeRequest Client::create_consume_request(const std::string& topic, uint64_t offset, uint32_t max_bytes) {
     ConsumeRequest consume_request;
     consume_request.header.api_key        = static_cast<int16_t>(ReqType::CONSUME);
     consume_request.header.api_version    = 3;
     consume_request.header.correlation_id = 2;
     consume_request.header.client_id      = "mini-kafka-client";
-    
+
     consume_request.replica_id    = -1;
     consume_request.max_wait_time = 500;
     consume_request.min_bytes     = 1;
@@ -103,56 +172,7 @@ std::vector<Batch> Client::consume(const std::string& topic, uint64_t& offset, u
     t_data.partitions.push_back(p_data);
 
     consume_request.topics.push_back(t_data);
-
-    if (!conn_.send(serialize_consume_request(consume_request)))
-        return {};
-
-    std::string response_size_buf;
-    if (!conn_.read_bytes(response_size_buf, 4))
-        return {};
-    
-    int32_t response_size;
-    decode_int32(response_size_buf.data(), 4, response_size);
-
-    std::string response_body;
-    if (!conn_.read_bytes(response_body, response_size))
-        return {};
-
-    FetchResponse res;
-    std::string   record_set;
-    if (!parse_fetch_response(response_body.data(), response_body.size(), res, record_set))
-        return {};
-
-    std::vector<Batch> batches;
-    const char*        data = record_set.data();
-    size_t             len  = record_set.size();
-    size_t             pos  = 0;
-
-    while (pos < len) {
-        Batch batch;
-        // Each batch in the record_set is a full RecordBatch as stored on disk
-        // which we can deserialize using deserialize_batch.
-        // However, deserialize_batch needs to know how many bytes to read.
-        // In Kafka, the RecordBatch starts with:
-        // [BaseOffset: 8] [BatchLength: 4] ...
-        // The BatchLength is the size of the REST of the batch (after the BatchLength field).
-        
-        if (pos + 12 > len) break;
-        
-        int32_t batch_length;
-        decode_int32(data + pos + 8, 4, batch_length);
-        
-        size_t full_batch_size = 12 + batch_length;
-        if (pos + full_batch_size > len) break;
-        
-        if (deserialize_batch(data + pos, full_batch_size, batch)) {
-            batches.push_back(std::move(batch));
-            offset = batches.back().base_offset + batches.back().records.size();
-        }
-        pos += full_batch_size;
-    }
-
-    return batches;
+    return consume_request;
 }
 
 std::vector<std::string> Client::list_topics() {
