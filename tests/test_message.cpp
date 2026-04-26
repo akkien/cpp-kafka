@@ -52,7 +52,7 @@ TEST(MessageTest, ProduceRequestSerializeDeserialize) {
 
 TEST(MessageTest, ConsumeRequestSerializeDeserialize) {
     ConsumeRequest req;
-    req.header.api_key = static_cast<int16_t>(ReqType::CONSUME);
+    req.header.api_key = static_cast<int16_t>(ReqType::FETCH);
     req.header.api_version = 3;
     req.header.correlation_id = 123;
     req.header.client_id = "test-client";
@@ -79,7 +79,7 @@ TEST(MessageTest, ConsumeRequestSerializeDeserialize) {
     bool success = parse_consume_request(serialized.data() + 4, serialized.size() - 4, decoded);
     EXPECT_TRUE(success);
     
-    EXPECT_EQ(decoded.header.api_key, static_cast<int16_t>(ReqType::CONSUME));
+    EXPECT_EQ(decoded.header.api_key, static_cast<int16_t>(ReqType::FETCH));
     EXPECT_EQ(decoded.header.client_id, "test-client");
     ASSERT_EQ(decoded.topics.size(), 1);
     EXPECT_EQ(decoded.topics[0].name, "test-topic");

@@ -6,9 +6,13 @@
 
 #include "common/batch.h"
 
+// see https://kafka.apache.org/42/design/protocol/#the-messages
+
 enum class ReqType : int16_t {
-    PRODUCE = 0,
-    CONSUME = 1,
+    PRODUCE      = 0,
+    FETCH        = 1,
+    METADATA     = 3,
+    API_VERSIONS = 18,
 };
 
 struct RequestHeader {
@@ -19,21 +23,21 @@ struct RequestHeader {
 };
 
 struct PartitionConsumeData {
-    int32_t  partition_index;
-    int64_t  fetch_offset;
-    int32_t  max_bytes;
+    int32_t partition_index;
+    int64_t fetch_offset;
+    int32_t max_bytes;
 };
 
 struct TopicConsumeData {
-    std::string                name;
+    std::string                       name;
     std::vector<PartitionConsumeData> partitions;
 };
 
 struct ConsumeRequest {
-    RequestHeader               header;
-    int32_t                     replica_id;
-    int32_t                     max_wait_time;
-    int32_t                     min_bytes;
+    RequestHeader                 header;
+    int32_t                       replica_id;
+    int32_t                       max_wait_time;
+    int32_t                       min_bytes;
     std::vector<TopicConsumeData> topics;
 };
 
@@ -57,53 +61,110 @@ struct ProduceRequest {
 };
 
 struct PartitionProduceResponse {
-    int32_t  partition_index;
-    int16_t  error_code;
-    int64_t  base_offset;
-    int64_t  log_append_time;
-    int64_t  log_start_offset;
+    int32_t partition_index;
+    int16_t error_code;
+    int64_t base_offset;
+    int64_t log_append_time;
+    int64_t log_start_offset;
 };
 
 struct TopicProduceResponse {
-    std::string                         name;
+    std::string                           name;
     std::vector<PartitionProduceResponse> partitions;
 };
 
 struct ProduceResponse {
-    int32_t                         correlation_id;
+    int32_t                           correlation_id;
     std::vector<TopicProduceResponse> topics;
-    int32_t                         throttle_time_ms;
+    int32_t                           throttle_time_ms;
 };
 
 struct PartitionFetchResponse {
-    int32_t  partition_index;
-    int16_t  error_code;
-    int64_t  high_watermark;
-    int64_t  last_stable_offset;
-    int64_t  log_start_offset;
+    int32_t partition_index;
+    int16_t error_code;
+    int64_t high_watermark;
+    int64_t last_stable_offset;
+    int64_t log_start_offset;
     // record_set will be sent separately via sendfile
 };
 
 struct TopicFetchResponse {
-    std::string                      name;
+    std::string                         name;
     std::vector<PartitionFetchResponse> partitions;
 };
 
 struct FetchResponse {
-    int32_t                      correlation_id;
-    int32_t                      throttle_time_ms;
+    int32_t                         correlation_id;
+    int32_t                         throttle_time_ms;
     std::vector<TopicFetchResponse> topics;
 };
 
+// ─── ApiVersions (API Key 18) ─────────────────────────────────────────────
+struct ApiVersionsRequest {
+    RequestHeader header;
+    // body is empty for v0-v2
+};
 
-using Request = std::variant<ProduceRequest, ConsumeRequest>;
+struct ApiVersionEntry {
+    int16_t api_key;
+    int16_t min_version;
+    int16_t max_version;
+};
+
+struct ApiVersionsResponse {
+    int32_t                  correlation_id;
+    int16_t                  error_code;
+    std::vector<ApiVersionEntry> api_versions;
+    int32_t                  throttle_time_ms;
+};
+
+// ─── Metadata (API Key 3) ───────────────────────────────────────────────────
+struct MetadataRequest {
+    RequestHeader            header;
+    std::vector<std::string> topics;  // empty = all topics
+};
+
+struct BrokerMetadata {
+    int32_t     node_id;
+    std::string host;
+    int32_t     port;
+};
+
+struct PartitionMetadata {
+    int16_t error_code;
+    int32_t partition_index;
+    int32_t leader_id;
+    // replicas and isr both contain just leader_id (single-broker)
+};
+
+struct TopicMetadata {
+    int16_t                      error_code;
+    std::string                  name;
+    std::vector<PartitionMetadata> partitions;
+};
+
+struct MetadataResponse {
+    int32_t                    correlation_id;
+    std::vector<BrokerMetadata>  brokers;
+    std::vector<TopicMetadata>   topics;
+    int32_t                    controller_id;
+};
+
+using Request = std::variant<ProduceRequest, ConsumeRequest, ApiVersionsRequest, MetadataRequest>;
 
 std::string serialize_produce_request(const ProduceRequest& req);
 std::string serialize_consume_request(const ConsumeRequest& req);
 std::string serialize_produce_response(const ProduceResponse& res);
 std::string serialize_fetch_response_header(const FetchResponse& res);
+std::string serialize_api_versions_response(const ApiVersionsResponse& res);
+std::string serialize_metadata_response(const MetadataResponse& res);
 
 bool parse_produce_request(const char* data, size_t len, ProduceRequest& req);
 bool parse_consume_request(const char* data, size_t len, ConsumeRequest& req);
 bool parse_produce_response(const char* data, size_t len, ProduceResponse& res);
 bool parse_fetch_response(const char* data, size_t len, FetchResponse& res, std::string& record_set);
+bool parse_api_versions_request(const char* data, size_t len, ApiVersionsRequest& req);
+bool parse_metadata_request(const char* data, size_t len, MetadataRequest& req);
+
+/// Peek the api_key from the raw (already size-stripped) request buffer.
+int16_t peek_api_key(const char* data, size_t len);

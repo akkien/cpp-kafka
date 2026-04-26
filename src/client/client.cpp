@@ -153,7 +153,7 @@ bool Client::get_produce_response(ProduceResponse& res) {
 
 ConsumeRequest Client::create_consume_request(const std::string& topic, uint64_t offset, uint32_t max_bytes) {
     ConsumeRequest consume_request;
-    consume_request.header.api_key        = static_cast<int16_t>(ReqType::CONSUME);
+    consume_request.header.api_key        = static_cast<int16_t>(ReqType::FETCH);
     consume_request.header.api_version    = 3;
     consume_request.header.correlation_id = 2;
     consume_request.header.client_id      = "mini-kafka-client";

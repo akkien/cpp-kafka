@@ -333,5 +333,142 @@ bool parse_fetch_response(const char* data, size_t len, FetchResponse& res, std:
 
     return true;
 }
+// ---------------------------------------------------------------------------
+// Helpers for new APIs
+// ---------------------------------------------------------------------------
 
+int16_t peek_api_key(const char* data, size_t len) {
+    int16_t key = -1;
+    if (len < 2) return key;
+    decode_int16(data, len, key);
+    return key;
+}
 
+bool parse_api_versions_request(const char* data, size_t len, ApiVersionsRequest& req) {
+    size_t pos = 0;
+    int    rd;
+
+    rd = decode_int16(data + pos, len - pos, req.header.api_key);
+    if (rd < 0) return false; pos += rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_version);
+    if (rd < 0) return false; pos += rd;
+    rd = decode_int32(data + pos, len - pos, req.header.correlation_id);
+    if (rd < 0) return false; pos += rd;
+    rd = decode_nullable_string(data + pos, len - pos, req.header.client_id);
+    if (rd < 0) return false; pos += rd;
+    // v0-v2: no body fields
+    (void)pos;
+    return true;
+}
+
+bool parse_metadata_request(const char* data, size_t len, MetadataRequest& req) {
+    size_t pos = 0;
+    int    rd;
+
+    rd = decode_int16(data + pos, len - pos, req.header.api_key);
+    if (rd < 0) return false; pos += rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_version);
+    if (rd < 0) return false; pos += rd;
+    rd = decode_int32(data + pos, len - pos, req.header.correlation_id);
+    if (rd < 0) return false; pos += rd;
+    rd = decode_nullable_string(data + pos, len - pos, req.header.client_id);
+    if (rd < 0) return false; pos += rd;
+
+    // topics array — null array (count = -1) means "all topics" in Metadata v0-v5
+    int32_t topic_count;
+    rd = decode_int32(data + pos, len - pos, topic_count);
+    if (rd < 0) return false; pos += rd;
+
+    for (int32_t i = 0; i < topic_count; ++i) {
+        std::string name;
+        rd = decode_string(data + pos, len - pos, name);
+        if (rd < 0) return false; pos += rd;
+        req.topics.push_back(std::move(name));
+    }
+    (void)pos;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// serialize_api_versions_response
+// Format (v0-v2, non-flexible):
+//   [4B correlation_id] [2B error_code] [4B array_len]
+//     per entry: [2B api_key] [2B min_ver] [2B max_ver]
+//   [4B throttle_time_ms]
+// Prepend 4-byte total size.
+// ---------------------------------------------------------------------------
+std::string serialize_api_versions_response(const ApiVersionsResponse& res) {
+    std::string body;
+    encode_int32(body, res.correlation_id);
+    encode_int16(body, res.error_code);
+
+    encode_int32(body, static_cast<int32_t>(res.api_versions.size()));
+    for (const auto& entry : res.api_versions) {
+        encode_int16(body, entry.api_key);
+        encode_int16(body, entry.min_version);
+        encode_int16(body, entry.max_version);
+    }
+    encode_int32(body, res.throttle_time_ms);
+
+    std::string out;
+    encode_int32(out, static_cast<int32_t>(body.size()));
+    out += body;
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// serialize_metadata_response
+// Format (v0-v4, non-flexible):
+//   [4B correlation_id]
+//   [4B broker_count]
+//     broker: [4B node_id] [2B+str host] [4B port] [2B rack=null=-1]
+//   [4B controller_id]      <- v1+
+//   [4B topic_count]
+//     topic: [2B err] [2B+str name] [1B is_internal] [4B part_count]
+//       part: [2B err] [4B index] [4B leader] [4B replica_count] [4B*N] [4B isr_count] [4B*N]
+// Prepend 4-byte total size.
+// ---------------------------------------------------------------------------
+std::string serialize_metadata_response(const MetadataResponse& res) {
+    std::string body;
+    encode_int32(body, res.correlation_id);
+
+    // Brokers
+    encode_int32(body, static_cast<int32_t>(res.brokers.size()));
+    for (const auto& b : res.brokers) {
+        encode_int32(body, b.node_id);
+        encode_string(body, b.host);
+        encode_int32(body, b.port);
+        encode_int16(body, -1);  // rack = null
+    }
+
+    // controller_id (v1+)
+    encode_int32(body, res.controller_id);
+
+    // Topics
+    encode_int32(body, static_cast<int32_t>(res.topics.size()));
+    for (const auto& t : res.topics) {
+        encode_int16(body, t.error_code);
+        encode_string(body, t.name);
+        body.push_back(0);  // is_internal = false (1 byte)
+
+        encode_int32(body, static_cast<int32_t>(t.partitions.size()));
+        for (const auto& p : t.partitions) {
+            encode_int16(body, p.error_code);
+            encode_int32(body, p.partition_index);
+            encode_int32(body, p.leader_id);
+
+            // replicas array = [leader_id]
+            encode_int32(body, 1);
+            encode_int32(body, p.leader_id);
+
+            // isr array = [leader_id]
+            encode_int32(body, 1);
+            encode_int32(body, p.leader_id);
+        }
+    }
+
+    std::string out;
+    encode_int32(out, static_cast<int32_t>(body.size()));
+    out += body;
+    return out;
+}
