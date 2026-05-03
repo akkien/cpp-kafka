@@ -17,13 +17,30 @@ int decode_varint(const char* buf, size_t n, uint64_t& value) {
     value        = 0;
     size_t bytes = 0;
     for (size_t i = 0; i < n; ++i) {
-        uint64_t byte = static_cast<uint64_t>(buf[i]);
+        uint64_t byte = static_cast<uint64_t>(static_cast<uint8_t>(buf[i]));
         value |= (byte & 0x7F) << (bytes * 7);
         bytes++;
         if ((byte & 0x80) == 0)
             return bytes;
     }
     return -1;
+}
+
+// ---------------------------------------------------------------------------
+// Zigzag signed varint — Kafka Record format uses this for nullable lengths.
+// Encoding: n → (n << 1) ^ (n >> 63)  i.e. -1 → 1, 0 → 0, 1 → 2, -2 → 3
+// ---------------------------------------------------------------------------
+void encode_zigzag(std::string& buf, int64_t value) {
+    uint64_t zz = static_cast<uint64_t>((value << 1) ^ (value >> 63));
+    encode_varint(buf, zz);
+}
+
+int decode_zigzag(const char* buf, size_t n, int64_t& value) {
+    uint64_t raw = 0;
+    int bytes = decode_varint(buf, n, raw);
+    if (bytes < 0) return -1;
+    value = static_cast<int64_t>((raw >> 1) ^ -(raw & 1));
+    return bytes;
 }
 
 void encode_int16(std::string& buf, int16_t value) {

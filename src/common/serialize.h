@@ -3,6 +3,11 @@
 void encode_varint(std::string& buf, uint64_t value);
 int  decode_varint(const char* buf, size_t n, uint64_t& value);
 
+/// Zigzag signed varint — used for nullable lengths in Kafka Record format.
+/// Encodes -1 as 0x01, 0 as 0x00, 1 as 0x02, etc.
+void encode_zigzag(std::string& buf, int64_t value);
+int  decode_zigzag(const char* buf, size_t n, int64_t& value);
+
 void encode_int16(std::string& buf, int16_t value);
 int  decode_int16(const char* buf, size_t n, int16_t& value);
 

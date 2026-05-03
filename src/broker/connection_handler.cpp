@@ -43,6 +43,10 @@ void ConnectionHandler::run() {
                 std::cout << "[broker] METADATA request received\n";
                 handle_metadata(req);
                 break;
+            case ReqType::FIND_COORDINATOR:
+                std::cout << "[broker] FIND_COORDINATOR request received\n";
+                handle_find_coordinator(req);
+                break;
             default:
                 std::cerr << "[broker] unknown api_key, skipping\n";
                 break;
@@ -152,6 +156,28 @@ void ConnectionHandler::handle_metadata(Request& req) {
 }
 
 // ---------------------------------------------------------------------------
+void ConnectionHandler::handle_find_coordinator(Request& req) {
+    auto& fcr = std::get<FindCoordinatorRequest>(req);
+    FindCoordinatorResponse res;
+    res.correlation_id   = fcr.header.correlation_id;
+    res.throttle_time_ms = 0;
+    res.error_code       = 0;
+    res.node_id          = BROKER_NODE_ID;
+    res.host             = BROKER_HOST;
+    res.port             = BROKER_PORT;
+    std::string buf = serialize_find_coordinator_response(res);
+    ::send(client_fd_, buf.data(), buf.size(), 0);
+}
+
+// ---------------------------------------------------------------------------
+void ConnectionHandler::send_unsupported(const char* buf, size_t len) {
+    int32_t corr = peek_correlation_id(buf, len);
+    // error_code 35 = UNSUPPORTED_VERSION — safe generic error
+    std::string resp = serialize_error_response(corr, 35);
+    ::send(client_fd_, resp.data(), resp.size(), 0);
+}
+
+// ---------------------------------------------------------------------------
 void ConnectionHandler::handle_list_topics() {
     auto topics = LogManager::instance().list_topics();
     for (const auto& t : topics) {
@@ -225,35 +251,54 @@ bool ConnectionHandler::read_message(ReqType& req_type, Request& req) {
     switch (req_type) {
         case ReqType::PRODUCE: {
             ProduceRequest pr;
-            if (!parse_produce_request(buf.data(), buf.size(), pr))
+            if (!parse_produce_request(buf.data(), buf.size(), pr)) {
+                std::cerr << "[broker] PARSE FAILED: ProduceRequest (size=" << req_size << ")\n";
                 return false;
+            }
             req = std::move(pr);
             break;
         }
         case ReqType::FETCH: {
             ConsumeRequest cr;
-            if (!parse_consume_request(buf.data(), buf.size(), cr))
+            if (!parse_consume_request(buf.data(), buf.size(), cr)) {
+                std::cerr << "[broker] PARSE FAILED: ConsumeRequest (size=" << req_size << ")\n";
                 return false;
+            }
             req = std::move(cr);
             break;
         }
         case ReqType::API_VERSIONS: {
             ApiVersionsRequest avr;
-            if (!parse_api_versions_request(buf.data(), buf.size(), avr))
+            if (!parse_api_versions_request(buf.data(), buf.size(), avr)) {
+                std::cerr << "[broker] PARSE FAILED: ApiVersionsRequest (size=" << req_size << ")\n";
                 return false;
+            }
             req = std::move(avr);
             break;
         }
         case ReqType::METADATA: {
             MetadataRequest mr;
-            if (!parse_metadata_request(buf.data(), buf.size(), mr))
+            if (!parse_metadata_request(buf.data(), buf.size(), mr)) {
+                std::cerr << "[broker] PARSE FAILED: MetadataRequest (size=" << req_size << ")\n";
                 return false;
+            }
             req = std::move(mr);
             break;
         }
+        case ReqType::FIND_COORDINATOR: {
+            FindCoordinatorRequest fcr;
+            if (!parse_find_coordinator_request(buf.data(), buf.size(), fcr)) {
+                std::cerr << "[broker] PARSE FAILED: FindCoordinatorRequest (size=" << req_size << ")\n";
+                return false;
+            }
+            req = std::move(fcr);
+            break;
+        }
         default:
-            std::cerr << "[broker] unknown api_key=" << api_key << ", skipping\n";
-            return true;  // keep connection alive, skip unknown request
+            std::cerr << "[broker] unknown api_key=" << api_key << ", sending error\n";
+            send_unsupported(buf.data(), buf.size());
+            req_type = static_cast<ReqType>(-1);  // mark as unknown
+            return true;  // keep connection alive
     }
 
     return true;

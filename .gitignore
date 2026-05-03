@@ -3,3 +3,4 @@ data/
 .DS_Store
 .cache/
 compile_commands.json
+*/**/node_modules

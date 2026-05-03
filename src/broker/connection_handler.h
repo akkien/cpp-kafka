@@ -29,11 +29,14 @@ private:
     /// Write a string to the socket.
     bool send_response(const std::string& data);
 
-    // ─── Command handlers ────────────────────────────────────────
+    // ─── Command handlers ────────────────────────────────────────────
     void handle_produce(Request& req);
     void handle_consume(Request& req);
     void handle_api_versions(Request& req);
     void handle_metadata(Request& req);
+    void handle_find_coordinator(Request& req);
+    /// Send a generic error response for unsupported APIs.
+    void send_unsupported(const char* buf, size_t len);
     void handle_list_topics();
 };
 

@@ -344,6 +344,74 @@ int16_t peek_api_key(const char* data, size_t len) {
     return key;
 }
 
+int32_t peek_correlation_id(const char* data, size_t len) {
+    // layout: [2B api_key][2B api_version][4B correlation_id]
+    int32_t corr = 0;
+    if (len < 8) return corr;
+    decode_int32(data + 4, len - 4, corr);
+    return corr;
+}
+
+// ---------------------------------------------------------------------------
+std::string serialize_error_response(int32_t correlation_id, int16_t error_code) {
+    std::string body;
+    encode_int32(body, correlation_id);
+    encode_int16(body, error_code);
+    std::string out;
+    encode_int32(out, static_cast<int32_t>(body.size()));
+    out += body;
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+bool parse_find_coordinator_request(const char* data, size_t len,
+                                    FindCoordinatorRequest& req) {
+    size_t pos = 0;
+    int    rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_key);
+    if (rd < 0) return false; pos += rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_version);
+    if (rd < 0) return false; pos += rd;
+    rd = decode_int32(data + pos, len - pos, req.header.correlation_id);
+    if (rd < 0) return false; pos += rd;
+    rd = decode_nullable_string(data + pos, len - pos, req.header.client_id);
+    if (rd < 0) return false; pos += rd;
+
+    rd = decode_string(data + pos, len - pos, req.key);
+    if (rd < 0) return false; pos += rd;
+
+    // key_type exists in v1+
+    if (req.header.api_version >= 1 && pos < len) {
+        req.key_type = static_cast<int8_t>(data[pos]);
+        pos++;
+    } else {
+        req.key_type = 0;
+    }
+    (void)pos;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// FindCoordinator Response v1:
+//   [4B correlation_id][4B throttle_time_ms][2B error_code]
+//   [2B error_message=null]
+//   [4B node_id][2B+str host][4B port]
+// ---------------------------------------------------------------------------
+std::string serialize_find_coordinator_response(const FindCoordinatorResponse& res) {
+    std::string body;
+    encode_int32(body, res.correlation_id);
+    encode_int32(body, res.throttle_time_ms);
+    encode_int16(body, res.error_code);
+    encode_int16(body, -1);  // error_message = null
+    encode_int32(body, res.node_id);
+    encode_string(body, res.host);
+    encode_int32(body, res.port);
+    std::string out;
+    encode_int32(out, static_cast<int32_t>(body.size()));
+    out += body;
+    return out;
+}
+
 bool parse_api_versions_request(const char* data, size_t len, ApiVersionsRequest& req) {
     size_t pos = 0;
     int    rd;
@@ -418,19 +486,25 @@ std::string serialize_api_versions_response(const ApiVersionsResponse& res) {
 
 // ---------------------------------------------------------------------------
 // serialize_metadata_response
-// Format (v0-v4, non-flexible):
+// Format (v1-v5, non-flexible):
 //   [4B correlation_id]
+//   [4B throttle_time_ms]                              <- v3+ (needed by kafkajs v5)
 //   [4B broker_count]
-//     broker: [4B node_id] [2B+str host] [4B port] [2B rack=null=-1]
-//   [4B controller_id]      <- v1+
+//     broker: [4B node_id] [2B+str host] [4B port] [2B rack=null]
+//   [2B cluster_id=null]                               <- v2+ (nullable string)
+//   [4B controller_id]                                 <- v1+
 //   [4B topic_count]
 //     topic: [2B err] [2B+str name] [1B is_internal] [4B part_count]
-//       part: [2B err] [4B index] [4B leader] [4B replica_count] [4B*N] [4B isr_count] [4B*N]
+//       part: [2B err] [4B index] [4B leader]
+//             [4B replica_count] [4B*N]
+//             [4B isr_count] [4B*N]
+//             [4B offline_replicas_count] [4B*N]       <- v5+
 // Prepend 4-byte total size.
 // ---------------------------------------------------------------------------
 std::string serialize_metadata_response(const MetadataResponse& res) {
     std::string body;
     encode_int32(body, res.correlation_id);
+    encode_int32(body, 0);  // throttle_time_ms = 0
 
     // Brokers
     encode_int32(body, static_cast<int32_t>(res.brokers.size()));
@@ -438,8 +512,10 @@ std::string serialize_metadata_response(const MetadataResponse& res) {
         encode_int32(body, b.node_id);
         encode_string(body, b.host);
         encode_int32(body, b.port);
-        encode_int16(body, -1);  // rack = null
+        encode_int16(body, -1);  // rack = null (nullable string, -1 = null)
     }
+
+    encode_int16(body, -1);  // cluster_id = null (nullable string)
 
     // controller_id (v1+)
     encode_int32(body, res.controller_id);
@@ -449,7 +525,7 @@ std::string serialize_metadata_response(const MetadataResponse& res) {
     for (const auto& t : res.topics) {
         encode_int16(body, t.error_code);
         encode_string(body, t.name);
-        body.push_back(0);  // is_internal = false (1 byte)
+        body.push_back(0);  // is_internal = false (1 byte boolean)
 
         encode_int32(body, static_cast<int32_t>(t.partitions.size()));
         for (const auto& p : t.partitions) {
@@ -464,6 +540,9 @@ std::string serialize_metadata_response(const MetadataResponse& res) {
             // isr array = [leader_id]
             encode_int32(body, 1);
             encode_int32(body, p.leader_id);
+
+            // offline_replicas array = [] (v5+)
+            encode_int32(body, 0);
         }
     }
 

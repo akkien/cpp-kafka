@@ -233,4 +233,13 @@ After that, they use varint to save space. However, only fields of record use va
     }
 ```
   
-    
+## Coordinator 
+
+Group Coordinator không phải là master node riêng biệt — đây là một broker bình thường được "chỉ định" phụ trách quản lý một consumer group cụ thể.
+
+Cách Kafka chọn Group Coordinator
+hash(group_id) % số_partition_của___consumer_offsets_topic
+→ partition P
+→ broker nào là leader của partition P → đó là Group Coordinator
+
+Kafka có một internal topic đặc biệt là __consumer_offsets (mặc định 50 partition). Group Coordinator là broker đang giữ leader của partition tương ứng với hash của group_id.

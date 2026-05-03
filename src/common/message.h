@@ -9,10 +9,11 @@
 // see https://kafka.apache.org/42/design/protocol/#the-messages
 
 enum class ReqType : int16_t {
-    PRODUCE      = 0,
-    FETCH        = 1,
-    METADATA     = 3,
-    API_VERSIONS = 18,
+    PRODUCE           = 0,
+    FETCH             = 1,
+    METADATA          = 3,
+    FIND_COORDINATOR  = 10,
+    API_VERSIONS      = 18,
 };
 
 struct RequestHeader {
@@ -150,7 +151,25 @@ struct MetadataResponse {
     int32_t                    controller_id;
 };
 
-using Request = std::variant<ProduceRequest, ConsumeRequest, ApiVersionsRequest, MetadataRequest>;
+// ─── FindCoordinator (API Key 10) ───────────────────────────────────────────────
+struct FindCoordinatorRequest {
+    RequestHeader header;
+    std::string   key;       // group id
+    int8_t        key_type;  // 0 = GROUP
+};
+
+struct FindCoordinatorResponse {
+    int32_t     correlation_id;
+    int32_t     throttle_time_ms;
+    int16_t     error_code;
+    std::string error_message;  // nullable
+    int32_t     node_id;
+    std::string host;
+    int32_t     port;
+};
+
+using Request = std::variant<ProduceRequest, ConsumeRequest, ApiVersionsRequest,
+                             MetadataRequest, FindCoordinatorRequest>;
 
 std::string serialize_produce_request(const ProduceRequest& req);
 std::string serialize_consume_request(const ConsumeRequest& req);
@@ -158,6 +177,9 @@ std::string serialize_produce_response(const ProduceResponse& res);
 std::string serialize_fetch_response_header(const FetchResponse& res);
 std::string serialize_api_versions_response(const ApiVersionsResponse& res);
 std::string serialize_metadata_response(const MetadataResponse& res);
+std::string serialize_find_coordinator_response(const FindCoordinatorResponse& res);
+/// Send a minimal [size][corr_id][error_code] response for unsupported APIs.
+std::string serialize_error_response(int32_t correlation_id, int16_t error_code);
 
 bool parse_produce_request(const char* data, size_t len, ProduceRequest& req);
 bool parse_consume_request(const char* data, size_t len, ConsumeRequest& req);
@@ -165,6 +187,9 @@ bool parse_produce_response(const char* data, size_t len, ProduceResponse& res);
 bool parse_fetch_response(const char* data, size_t len, FetchResponse& res, std::string& record_set);
 bool parse_api_versions_request(const char* data, size_t len, ApiVersionsRequest& req);
 bool parse_metadata_request(const char* data, size_t len, MetadataRequest& req);
+bool parse_find_coordinator_request(const char* data, size_t len, FindCoordinatorRequest& req);
 
 /// Peek the api_key from the raw (already size-stripped) request buffer.
 int16_t peek_api_key(const char* data, size_t len);
+/// Peek the correlation_id (bytes 4-7) from the raw request buffer.
+int32_t peek_correlation_id(const char* data, size_t len);
