@@ -55,7 +55,7 @@ std::vector<Batch> Client::consume(const std::string& topic, uint64_t& offset, u
 
     FetchResponse res;
     std::string   record_set;
-    if (!parse_fetch_response(response_body.data(), response_body.size(), res, record_set))
+    if (!parse_fetch_response(response_body.data(), response_body.size(), 3, res, record_set))
         return {};
 
     std::vector<Batch> batches;

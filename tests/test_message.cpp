@@ -138,7 +138,7 @@ TEST(MessageTest, FetchResponseSerializeDeserialize) {
     t_res.partitions.push_back(p_res);
     res.topics.push_back(t_res);
     
-    std::string header = serialize_fetch_response_header(res);
+    std::string header = serialize_fetch_response_header(res, 3);
     
     // Manual construction of the full response for testing
     std::string full_response;
@@ -154,7 +154,7 @@ TEST(MessageTest, FetchResponseSerializeDeserialize) {
     
     FetchResponse decoded;
     std::string decoded_record_set;
-    bool success = parse_fetch_response(full_response.data() + 4, full_response.size() - 4, decoded, decoded_record_set);
+    bool success = parse_fetch_response(full_response.data() + 4, full_response.size() - 4, 3, decoded, decoded_record_set);
     EXPECT_TRUE(success);
     EXPECT_EQ(decoded.correlation_id, 456);
     EXPECT_EQ(decoded_record_set, "mock-record-set");

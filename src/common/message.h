@@ -11,8 +11,14 @@
 enum class ReqType : int16_t {
     PRODUCE           = 0,
     FETCH             = 1,
+    LIST_OFFSETS      = 2,
     METADATA          = 3,
+    OFFSET_COMMIT     = 8,
+    OFFSET_FETCH      = 9,
     FIND_COORDINATOR  = 10,
+    JOIN_GROUP        = 11,
+    HEARTBEAT         = 12,
+    SYNC_GROUP        = 14,
     API_VERSIONS      = 18,
 };
 
@@ -39,6 +45,8 @@ struct ConsumeRequest {
     int32_t                       replica_id;
     int32_t                       max_wait_time;
     int32_t                       min_bytes;
+    int32_t                       max_bytes;
+    int8_t                        isolation_level;
     std::vector<TopicConsumeData> topics;
 };
 
@@ -168,26 +176,136 @@ struct FindCoordinatorResponse {
     int32_t     port;
 };
 
+// ─── Mock Group Coordinator ─────────────────────────────────────────────────
+struct JoinGroupRequest {
+    RequestHeader header;
+    std::string   group_id;
+    std::string   member_id;
+    std::string   protocol_type;
+    std::string   first_protocol_name; // We just parse the first protocol name to echo it back
+    std::string   first_protocol_metadata; // To echo back in SyncGroup if needed
+};
+
+struct JoinGroupResponse {
+    int32_t     correlation_id;
+    int32_t     throttle_time_ms;
+    int16_t     error_code;
+    int32_t     generation_id;
+    std::string protocol_name;
+    std::string leader;
+    std::string member_id;
+    std::string member_metadata; // Echoed from request
+};
+
+struct SyncGroupRequest {
+    RequestHeader header;
+    std::string   group_id;
+    int32_t       generation_id;
+    std::string   member_id;
+    std::string   group_assignment; // raw bytes
+};
+
+struct SyncGroupResponse {
+    int32_t     correlation_id;
+    int32_t     throttle_time_ms;
+    int16_t     error_code;
+    std::string assignment; // raw bytes
+};
+
+struct HeartbeatRequest {
+    RequestHeader header;
+};
+
+struct HeartbeatResponse {
+    int32_t correlation_id;
+    int32_t throttle_time_ms;
+    int16_t error_code;
+};
+
+struct ListOffsetsRequest {
+    RequestHeader header;
+    int32_t       replica_id;
+    int8_t        isolation_level; // v2+
+    std::vector<std::string> topics;
+};
+
+struct ListOffsetsPartitionResponse {
+    int32_t partition;
+    int16_t error_code;
+    int64_t timestamp;
+    int64_t offset;
+};
+
+struct ListOffsetsTopicResponse {
+    std::string topic;
+    std::vector<ListOffsetsPartitionResponse> partitions;
+};
+
+struct ListOffsetsResponse {
+    int32_t correlation_id;
+    int32_t throttle_time_ms;
+    std::vector<ListOffsetsTopicResponse> topics;
+};
+
+struct OffsetFetchRequest {
+    RequestHeader header;
+    std::string   group_id;
+    std::vector<std::string> topics;
+};
+
+struct OffsetFetchResponse {
+    int32_t correlation_id;
+    int32_t throttle_time_ms;
+    std::vector<std::string> topics;
+};
+
+struct OffsetCommitRequest {
+    RequestHeader header;
+    std::string   group_id;
+    std::vector<std::string> topics;
+};
+
+struct OffsetCommitResponse {
+    int32_t correlation_id;
+    int32_t throttle_time_ms;
+    std::vector<std::string> topics;
+};
+
 using Request = std::variant<ProduceRequest, ConsumeRequest, ApiVersionsRequest,
-                             MetadataRequest, FindCoordinatorRequest>;
+                             MetadataRequest, FindCoordinatorRequest,
+                             JoinGroupRequest, SyncGroupRequest, HeartbeatRequest,
+                             OffsetFetchRequest, OffsetCommitRequest, ListOffsetsRequest>;
 
 std::string serialize_produce_request(const ProduceRequest& req);
 std::string serialize_consume_request(const ConsumeRequest& req);
 std::string serialize_produce_response(const ProduceResponse& res);
-std::string serialize_fetch_response_header(const FetchResponse& res);
+std::string serialize_fetch_response_header(const FetchResponse& res, int16_t api_version);
 std::string serialize_api_versions_response(const ApiVersionsResponse& res);
 std::string serialize_metadata_response(const MetadataResponse& res);
 std::string serialize_find_coordinator_response(const FindCoordinatorResponse& res);
+std::string serialize_join_group_response(const JoinGroupResponse& res);
+std::string serialize_sync_group_response(const SyncGroupResponse& res);
+std::string serialize_heartbeat_response(const HeartbeatResponse& res);
+std::string serialize_offset_fetch_response(const OffsetFetchResponse& res);
+std::string serialize_offset_commit_response(const OffsetCommitResponse& res);
+std::string serialize_list_offsets_response(const ListOffsetsResponse& res);
+
 /// Send a minimal [size][corr_id][error_code] response for unsupported APIs.
 std::string serialize_error_response(int32_t correlation_id, int16_t error_code);
 
 bool parse_produce_request(const char* data, size_t len, ProduceRequest& req);
 bool parse_consume_request(const char* data, size_t len, ConsumeRequest& req);
 bool parse_produce_response(const char* data, size_t len, ProduceResponse& res);
-bool parse_fetch_response(const char* data, size_t len, FetchResponse& res, std::string& record_set);
+bool parse_fetch_response(const char* data, size_t len, int16_t api_version, FetchResponse& res, std::string& record_set);
 bool parse_api_versions_request(const char* data, size_t len, ApiVersionsRequest& req);
 bool parse_metadata_request(const char* data, size_t len, MetadataRequest& req);
 bool parse_find_coordinator_request(const char* data, size_t len, FindCoordinatorRequest& req);
+bool parse_join_group_request(const char* data, size_t len, JoinGroupRequest& req);
+bool parse_sync_group_request(const char* data, size_t len, SyncGroupRequest& req);
+bool parse_heartbeat_request(const char* data, size_t len, HeartbeatRequest& req);
+bool parse_offset_fetch_request(const char* data, size_t len, OffsetFetchRequest& req);
+bool parse_offset_commit_request(const char* data, size_t len, OffsetCommitRequest& req);
+bool parse_list_offsets_request(const char* data, size_t len, ListOffsetsRequest& req);
 
 /// Peek the api_key from the raw (already size-stripped) request buffer.
 int16_t peek_api_key(const char* data, size_t len);

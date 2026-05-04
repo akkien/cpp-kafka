@@ -35,6 +35,10 @@ void ConnectionHandler::run() {
                 std::cout << "[broker] FETCH request received\n";
                 handle_consume(req);
                 break;
+            case ReqType::LIST_OFFSETS:
+                std::cout << "[broker] LIST_OFFSETS request received\n";
+                handle_list_offsets(req);
+                break;
             case ReqType::API_VERSIONS:
                 std::cout << "[broker] API_VERSIONS request received\n";
                 handle_api_versions(req);
@@ -46,6 +50,26 @@ void ConnectionHandler::run() {
             case ReqType::FIND_COORDINATOR:
                 std::cout << "[broker] FIND_COORDINATOR request received\n";
                 handle_find_coordinator(req);
+                break;
+            case ReqType::JOIN_GROUP:
+                std::cout << "[broker] JOIN_GROUP request received\n";
+                handle_join_group(req);
+                break;
+            case ReqType::SYNC_GROUP:
+                std::cout << "[broker] SYNC_GROUP request received\n";
+                handle_sync_group(req);
+                break;
+            case ReqType::HEARTBEAT:
+                std::cout << "[broker] HEARTBEAT request received\n";
+                handle_heartbeat(req);
+                break;
+            case ReqType::OFFSET_FETCH:
+                std::cout << "[broker] OFFSET_FETCH request received\n";
+                handle_offset_fetch(req);
+                break;
+            case ReqType::OFFSET_COMMIT:
+                std::cout << "[broker] OFFSET_COMMIT request received\n";
+                handle_offset_commit(req);
                 break;
             default:
                 std::cerr << "[broker] unknown api_key, skipping\n";
@@ -92,7 +116,7 @@ void ConnectionHandler::handle_consume(Request& req) {
     if (!cr.topics.empty() && !cr.topics[0].partitions.empty()) {
         const auto& topic = cr.topics[0];
         const auto& part  = topic.partitions[0];
-        LogManager::instance().send(client_fd_, cr.header.correlation_id,
+        LogManager::instance().send(client_fd_, cr.header.api_version, cr.header.correlation_id,
                                     topic.name, part.fetch_offset, part.max_bytes);
     }
 }
@@ -109,8 +133,15 @@ void ConnectionHandler::handle_api_versions(Request& req) {
     // Advertise only the versions we actually implement (non-flexible)
     res.api_versions = {
         {0,  0, 3},   // Produce
-        {1,  0, 3},   // Fetch
+        {1,  0, 4},   // Fetch (v4 so kafkajs uses RecordBatchDecoder for magic byte 2)
+        {2,  0, 2},   // ListOffsets
         {3,  0, 5},   // Metadata
+        {8,  0, 2},   // OffsetCommit
+        {9,  0, 2},   // OffsetFetch
+        {10, 0, 2},   // FindCoordinator
+        {11, 0, 2},   // JoinGroup
+        {12, 0, 1},   // Heartbeat
+        {14, 0, 1},   // SyncGroup
         {18, 0, 3},   // ApiVersions
     };
 
@@ -267,6 +298,15 @@ bool ConnectionHandler::read_message(ReqType& req_type, Request& req) {
             req = std::move(cr);
             break;
         }
+        case ReqType::LIST_OFFSETS: {
+            ListOffsetsRequest lor;
+            if (!parse_list_offsets_request(buf.data(), buf.size(), lor)) {
+                std::cerr << "[broker] PARSE FAILED: ListOffsetsRequest (size=" << req_size << ")\n";
+                return false;
+            }
+            req = std::move(lor);
+            break;
+        }
         case ReqType::API_VERSIONS: {
             ApiVersionsRequest avr;
             if (!parse_api_versions_request(buf.data(), buf.size(), avr)) {
@@ -294,6 +334,51 @@ bool ConnectionHandler::read_message(ReqType& req_type, Request& req) {
             req = std::move(fcr);
             break;
         }
+        case ReqType::JOIN_GROUP: {
+            JoinGroupRequest jgr;
+            if (!parse_join_group_request(buf.data(), buf.size(), jgr)) {
+                std::cerr << "[broker] PARSE FAILED: JoinGroupRequest (size=" << req_size << ")\n";
+                return false;
+            }
+            req = std::move(jgr);
+            break;
+        }
+        case ReqType::SYNC_GROUP: {
+            SyncGroupRequest sgr;
+            if (!parse_sync_group_request(buf.data(), buf.size(), sgr)) {
+                std::cerr << "[broker] PARSE FAILED: SyncGroupRequest (size=" << req_size << ")\n";
+                return false;
+            }
+            req = std::move(sgr);
+            break;
+        }
+        case ReqType::HEARTBEAT: {
+            HeartbeatRequest hbr;
+            if (!parse_heartbeat_request(buf.data(), buf.size(), hbr)) {
+                std::cerr << "[broker] PARSE FAILED: HeartbeatRequest (size=" << req_size << ")\n";
+                return false;
+            }
+            req = std::move(hbr);
+            break;
+        }
+        case ReqType::OFFSET_FETCH: {
+            OffsetFetchRequest ofr;
+            if (!parse_offset_fetch_request(buf.data(), buf.size(), ofr)) {
+                std::cerr << "[broker] PARSE FAILED: OffsetFetchRequest (size=" << req_size << ")\n";
+                return false;
+            }
+            req = std::move(ofr);
+            break;
+        }
+        case ReqType::OFFSET_COMMIT: {
+            OffsetCommitRequest ocr;
+            if (!parse_offset_commit_request(buf.data(), buf.size(), ocr)) {
+                std::cerr << "[broker] PARSE FAILED: OffsetCommitRequest (size=" << req_size << ")\n";
+                return false;
+            }
+            req = std::move(ocr);
+            break;
+        }
         default:
             std::cerr << "[broker] unknown api_key=" << api_key << ", sending error\n";
             send_unsupported(buf.data(), buf.size());
@@ -302,6 +387,99 @@ bool ConnectionHandler::read_message(ReqType& req_type, Request& req) {
     }
 
     return true;
+}
+
+// ---------------------------------------------------------------------------
+void ConnectionHandler::handle_join_group(Request& req) {
+    auto& jgr = std::get<JoinGroupRequest>(req);
+    JoinGroupResponse res;
+    res.correlation_id = jgr.header.correlation_id;
+    res.throttle_time_ms = 0;
+    res.error_code = 0;
+    res.generation_id = 1;
+    res.protocol_name = jgr.first_protocol_name.empty() ? "consumer" : jgr.first_protocol_name;
+    res.leader = "kafkajs-dummy-member";
+    res.member_id = "kafkajs-dummy-member";
+    res.member_metadata = jgr.first_protocol_metadata;
+
+    std::string buf = serialize_join_group_response(res);
+    ::send(client_fd_, buf.data(), buf.size(), 0);
+}
+
+// ---------------------------------------------------------------------------
+void ConnectionHandler::handle_sync_group(Request& req) {
+    auto& sgr = std::get<SyncGroupRequest>(req);
+    SyncGroupResponse res;
+    res.correlation_id = sgr.header.correlation_id;
+    res.throttle_time_ms = 0;
+    res.error_code = 0;
+    res.assignment = sgr.group_assignment;
+
+    std::string buf = serialize_sync_group_response(res);
+    ::send(client_fd_, buf.data(), buf.size(), 0);
+}
+
+// ---------------------------------------------------------------------------
+void ConnectionHandler::handle_heartbeat(Request& req) {
+    auto& hbr = std::get<HeartbeatRequest>(req);
+    HeartbeatResponse res;
+    res.correlation_id = hbr.header.correlation_id;
+    res.throttle_time_ms = 0;
+    res.error_code = 0;
+
+    std::string buf = serialize_heartbeat_response(res);
+    ::send(client_fd_, buf.data(), buf.size(), 0);
+}
+
+// ---------------------------------------------------------------------------
+void ConnectionHandler::handle_offset_fetch(Request& req) {
+    auto& ofr = std::get<OffsetFetchRequest>(req);
+    OffsetFetchResponse res;
+    res.correlation_id = ofr.header.correlation_id;
+    res.throttle_time_ms = 0;
+    res.topics = ofr.topics; // Send back the same topics
+    
+    std::string buf = serialize_offset_fetch_response(res);
+    ::send(client_fd_, buf.data(), buf.size(), 0);
+}
+
+// ---------------------------------------------------------------------------
+void ConnectionHandler::handle_offset_commit(Request& req) {
+    auto& ocr = std::get<OffsetCommitRequest>(req);
+    OffsetCommitResponse res;
+    res.correlation_id = ocr.header.correlation_id;
+    res.throttle_time_ms = 0;
+    res.topics = ocr.topics; // Send back the same topics
+
+    std::string buf = serialize_offset_commit_response(res);
+    ::send(client_fd_, buf.data(), buf.size(), 0);
+}
+
+// ---------------------------------------------------------------------------
+void ConnectionHandler::handle_list_offsets(Request& req) {
+    auto& lor = std::get<ListOffsetsRequest>(req);
+    ListOffsetsResponse res;
+    res.correlation_id = lor.header.correlation_id;
+    res.throttle_time_ms = 0;
+    
+    for (const auto& topic : lor.topics) {
+        ListOffsetsTopicResponse tr;
+        tr.topic = topic;
+        
+        ListOffsetsPartitionResponse pr;
+        pr.partition = 0;
+        pr.error_code = 0;
+        pr.timestamp = -1; // -1 means we don't return timestamp
+        // For offset, we should return the current log end offset or 0.
+        // Let's just return 0 for the mock.
+        pr.offset = 0;
+        
+        tr.partitions.push_back(pr);
+        res.topics.push_back(tr);
+    }
+    
+    std::string buf = serialize_list_offsets_response(res);
+    ::send(client_fd_, buf.data(), buf.size(), 0);
 }
 
 }  // namespace kafka

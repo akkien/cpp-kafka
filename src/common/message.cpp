@@ -151,6 +151,17 @@ bool parse_consume_request(const char* data, size_t len, ConsumeRequest& req) {
     if (read < 0) return false; pos += read;
     read = decode_int32(data + pos, len - pos, req.min_bytes);
     if (read < 0) return false; pos += read;
+    
+    if (req.header.api_version >= 3) {
+        read = decode_int32(data + pos, len - pos, req.max_bytes);
+        if (read < 0) return false; pos += read;
+    }
+    
+    if (req.header.api_version >= 4) {
+        if (pos + 1 > len) return false;
+        req.isolation_level = *(data + pos);
+        pos += 1;
+    }
 
     int32_t topic_count;
     read = decode_int32(data + pos, len - pos, topic_count);
@@ -197,7 +208,7 @@ std::string serialize_produce_response(const ProduceResponse& res) {
             encode_int16(body, part.error_code);
             encode_int64(body, part.base_offset);
             encode_int64(body, part.log_append_time);
-            encode_int64(body, part.log_start_offset);
+            // NOTE: log_start_offset only in ProduceResponse v5+. We advertise v3 so omit it.
         }
     }
     encode_int32(body, res.throttle_time_ms);
@@ -252,7 +263,7 @@ bool parse_produce_response(const char* data, size_t len, ProduceResponse& res) 
     return true;
 }
 
-std::string serialize_fetch_response_header(const FetchResponse& res) {
+std::string serialize_fetch_response_header(const FetchResponse& res, int16_t api_version) {
     std::string body;
     encode_int32(body, res.correlation_id);
     encode_int32(body, res.throttle_time_ms);
@@ -265,20 +276,22 @@ std::string serialize_fetch_response_header(const FetchResponse& res) {
             encode_int32(body, part.partition_index);
             encode_int16(body, part.error_code);
             encode_int64(body, part.high_watermark);
-            encode_int64(body, part.last_stable_offset);
-            encode_int64(body, part.log_start_offset);
-            encode_int32(body, 0); // Placeholder for aborted_transactions count
             
-            // Note: RecordSet size and data will be handled by the caller
-            // because they might use sendfile.
+            if (api_version >= 4) {
+                encode_int64(body, part.last_stable_offset);
+                // Also v4 has aborted_transactions array
+                encode_int32(body, 0); // empty aborted_transactions
+            }
+            if (api_version >= 5) {
+                encode_int64(body, part.log_start_offset);
+            }
         }
     }
     
-    // We don't prepend the total size here because we don't know the RecordSet size yet.
     return body;
 }
 
-bool parse_fetch_response(const char* data, size_t len, FetchResponse& res, std::string& record_set) {
+bool parse_fetch_response(const char* data, size_t len, int16_t api_version, FetchResponse& res, std::string& record_set) {
     size_t pos = 0;
     int    read;
 
@@ -308,15 +321,24 @@ bool parse_fetch_response(const char* data, size_t len, FetchResponse& res, std:
             if (read < 0) return false; pos += read;
             read = decode_int64(data + pos, len - pos, part.high_watermark);
             if (read < 0) return false; pos += read;
-            read = decode_int64(data + pos, len - pos, part.last_stable_offset);
-            if (read < 0) return false; pos += read;
-            read = decode_int64(data + pos, len - pos, part.log_start_offset);
-            if (read < 0) return false; pos += read;
             
-            int32_t aborted_count;
-            read = decode_int32(data + pos, len - pos, aborted_count);
-            if (read < 0) return false; pos += read;
-            // Skip aborted transactions (we don't support them)
+            if (api_version >= 4) {
+                read = decode_int64(data + pos, len - pos, part.last_stable_offset);
+                if (read < 0) return false; pos += read;
+                
+                int32_t aborted_count;
+                read = decode_int32(data + pos, len - pos, aborted_count);
+                if (read < 0) return false; pos += read;
+                // Skip aborted transactions
+                for (int k = 0; k < aborted_count; ++k) {
+                    pos += 16; // producer_id (8) + first_offset (8)
+                }
+            }
+            
+            if (api_version >= 5) {
+                read = decode_int64(data + pos, len - pos, part.log_start_offset);
+                if (read < 0) return false; pos += read;
+            }
             
             int32_t record_set_size;
             read = decode_int32(data + pos, len - pos, record_set_size);
@@ -549,5 +571,246 @@ std::string serialize_metadata_response(const MetadataResponse& res) {
     std::string out;
     encode_int32(out, static_cast<int32_t>(body.size()));
     out += body;
+    return out;
+}
+
+// ─── Mock Group Coordinator APIs ────────────────────────────────────────────
+
+bool parse_join_group_request(const char* data, size_t len, JoinGroupRequest& req) {
+    size_t pos = 0; int rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_key); if(rd<0)return false; pos+=rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_version); if(rd<0)return false; pos+=rd;
+    rd = decode_int32(data + pos, len - pos, req.header.correlation_id); if(rd<0)return false; pos+=rd;
+    rd = decode_nullable_string(data + pos, len - pos, req.header.client_id); if(rd<0)return false; pos+=rd;
+
+    rd = decode_string(data + pos, len - pos, req.group_id); if(rd<0)return false; pos+=rd;
+    if(pos+8 > len) return false; pos += 8; // skip session_timeout & rebalance_timeout
+    rd = decode_string(data + pos, len - pos, req.member_id); if(rd<0)return false; pos+=rd;
+    rd = decode_string(data + pos, len - pos, req.protocol_type); if(rd<0)return false; pos+=rd;
+
+    int32_t proto_count;
+    rd = decode_int32(data + pos, len - pos, proto_count); if(rd<0)return false; pos+=rd;
+    if (proto_count > 0) {
+        rd = decode_string(data + pos, len - pos, req.first_protocol_name); if(rd<0)return false; pos+=rd;
+        int32_t meta_len;
+        rd = decode_int32(data + pos, len - pos, meta_len); if(rd<0)return false; pos+=rd;
+        if(meta_len > 0 && pos + meta_len <= len) {
+            req.first_protocol_metadata.assign(data + pos, meta_len);
+            pos += meta_len;
+        }
+    }
+    return true;
+}
+
+std::string serialize_join_group_response(const JoinGroupResponse& res) {
+    std::string body;
+    encode_int32(body, res.correlation_id);
+    encode_int32(body, res.throttle_time_ms);
+    encode_int16(body, res.error_code);
+    encode_int32(body, res.generation_id);
+    encode_string(body, res.protocol_name);
+    encode_string(body, res.leader);
+    encode_string(body, res.member_id);
+    // members array
+    encode_int32(body, 1);
+    encode_string(body, res.member_id);
+    encode_int32(body, static_cast<int32_t>(res.member_metadata.size()));
+    body += res.member_metadata;
+
+    std::string out;
+    encode_int32(out, static_cast<int32_t>(body.size()));
+    out += body;
+    return out;
+}
+
+bool parse_sync_group_request(const char* data, size_t len, SyncGroupRequest& req) {
+    size_t pos = 0; int rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_key); if(rd<0)return false; pos+=rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_version); if(rd<0)return false; pos+=rd;
+    rd = decode_int32(data + pos, len - pos, req.header.correlation_id); if(rd<0)return false; pos+=rd;
+    rd = decode_nullable_string(data + pos, len - pos, req.header.client_id); if(rd<0)return false; pos+=rd;
+
+    rd = decode_string(data + pos, len - pos, req.group_id); if(rd<0)return false; pos+=rd;
+    rd = decode_int32(data + pos, len - pos, req.generation_id); if(rd<0)return false; pos+=rd;
+    rd = decode_string(data + pos, len - pos, req.member_id); if(rd<0)return false; pos+=rd;
+
+    int32_t assign_count;
+    rd = decode_int32(data + pos, len - pos, assign_count); if(rd<0)return false; pos+=rd;
+    if (assign_count > 0) {
+        std::string member_id;
+        rd = decode_string(data + pos, len - pos, member_id); if(rd<0)return false; pos+=rd;
+        int32_t assign_len;
+        rd = decode_int32(data + pos, len - pos, assign_len); if(rd<0)return false; pos+=rd;
+        if(assign_len > 0 && pos + assign_len <= len) {
+            req.group_assignment.assign(data + pos, assign_len);
+            pos += assign_len;
+        }
+    }
+    return true;
+}
+
+std::string serialize_sync_group_response(const SyncGroupResponse& res) {
+    std::string body;
+    encode_int32(body, res.correlation_id);
+    encode_int32(body, res.throttle_time_ms);
+    encode_int16(body, res.error_code);
+    encode_int32(body, static_cast<int32_t>(res.assignment.size()));
+    body += res.assignment;
+
+    std::string out;
+    encode_int32(out, static_cast<int32_t>(body.size()));
+    out += body;
+    return out;
+}
+
+bool parse_heartbeat_request(const char* data, size_t len, HeartbeatRequest& req) {
+    size_t pos = 0; int rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_key); if(rd<0)return false; pos+=rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_version); if(rd<0)return false; pos+=rd;
+    rd = decode_int32(data + pos, len - pos, req.header.correlation_id); if(rd<0)return false; pos+=rd;
+    return true;
+}
+
+std::string serialize_heartbeat_response(const HeartbeatResponse& res) {
+    std::string body;
+    encode_int32(body, res.correlation_id);
+    encode_int32(body, res.throttle_time_ms);
+    encode_int16(body, res.error_code);
+    std::string out; encode_int32(out, static_cast<int32_t>(body.size())); out += body;
+    return out;
+}
+
+bool parse_offset_fetch_request(const char* data, size_t len, OffsetFetchRequest& req) {
+    size_t pos = 0; int rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_key); if(rd<0)return false; pos+=rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_version); if(rd<0)return false; pos+=rd;
+    rd = decode_int32(data + pos, len - pos, req.header.correlation_id); if(rd<0)return false; pos+=rd;
+    rd = decode_nullable_string(data + pos, len - pos, req.header.client_id); if(rd<0)return false; pos+=rd;
+
+    rd = decode_string(data + pos, len - pos, req.group_id); if(rd<0)return false; pos+=rd;
+    int32_t topics_count;
+    rd = decode_int32(data + pos, len - pos, topics_count); if(rd<0)return false; pos+=rd;
+    if (topics_count > 0 && topics_count < 1000) {
+        for(int i=0; i<topics_count; ++i) {
+            std::string t; rd = decode_string(data + pos, len - pos, t); if(rd<0)return false; pos+=rd;
+            req.topics.push_back(t);
+            int32_t p_count; rd = decode_int32(data+pos, len-pos, p_count); if(rd<0)return false; pos+=rd;
+            if (pos + p_count * 4 > len) return false;
+            pos += p_count * 4; // skip partitions array
+        }
+    }
+    return true;
+}
+
+std::string serialize_offset_fetch_response(const OffsetFetchResponse& res) {
+    std::string body;
+    encode_int32(body, res.correlation_id);
+    encode_int32(body, static_cast<int32_t>(res.topics.size()));
+    for (const auto& t : res.topics) {
+        encode_string(body, t);
+        encode_int32(body, 1); // 1 partition
+        encode_int32(body, 0); // partition 0
+        encode_int64(body, -1); // offset -1 (not found)
+        encode_nullable_string(body, ""); // metadata
+        encode_int16(body, 0); // partition error code
+    }
+    encode_int16(body, 0); // top level error code
+    std::string out; encode_int32(out, static_cast<int32_t>(body.size())); out += body;
+    return out;
+}
+
+bool parse_offset_commit_request(const char* data, size_t len, OffsetCommitRequest& req) {
+    size_t pos = 0; int rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_key); if(rd<0)return false; pos+=rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_version); if(rd<0)return false; pos+=rd;
+    rd = decode_int32(data + pos, len - pos, req.header.correlation_id); if(rd<0)return false; pos+=rd;
+    rd = decode_nullable_string(data + pos, len - pos, req.header.client_id); if(rd<0)return false; pos+=rd;
+
+    rd = decode_string(data + pos, len - pos, req.group_id); if(rd<0)return false; pos+=rd;
+    if(req.header.api_version >= 1) {
+        if (pos + 4 > len) return false;
+        pos += 4; // generation_id
+        std::string member_id; rd = decode_string(data+pos, len-pos, member_id); if(rd<0)return false; pos+=rd;
+    }
+    if(req.header.api_version >= 2) {
+        if (pos + 8 > len) return false;
+        pos += 8; // retention_time
+    }
+    
+    int32_t topics_count;
+    rd = decode_int32(data + pos, len - pos, topics_count); if(rd<0)return false; pos+=rd;
+    if (topics_count > 0 && topics_count < 1000) {
+        for(int i=0; i<topics_count; ++i) {
+            std::string t; rd = decode_string(data + pos, len - pos, t); if(rd<0)return false; pos+=rd;
+            req.topics.push_back(t);
+            int32_t p_count; rd = decode_int32(data+pos, len-pos, p_count); if(rd<0)return false; pos+=rd;
+            for(int j=0; j<p_count; ++j) {
+                if (pos + 12 > len) return false;
+                pos += 12; // part_id (4), offset (8)
+                std::string meta; rd = decode_nullable_string(data+pos, len-pos, meta); if(rd<0)return false; pos+=rd;
+            }
+        }
+    }
+    return true;
+}
+
+std::string serialize_offset_commit_response(const OffsetCommitResponse& res) {
+    std::string body;
+    encode_int32(body, res.correlation_id);
+    encode_int32(body, static_cast<int32_t>(res.topics.size()));
+    for (const auto& t : res.topics) {
+        encode_string(body, t);
+        encode_int32(body, 1); // 1 partition
+        encode_int32(body, 0); // partition 0
+        encode_int16(body, 0); // error code
+    }
+    std::string out; encode_int32(out, static_cast<int32_t>(body.size())); out += body;
+    return out;
+}
+
+bool parse_list_offsets_request(const char* data, size_t len, ListOffsetsRequest& req) {
+    size_t pos = 0; int rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_key); if(rd<0)return false; pos+=rd;
+    rd = decode_int16(data + pos, len - pos, req.header.api_version); if(rd<0)return false; pos+=rd;
+    rd = decode_int32(data + pos, len - pos, req.header.correlation_id); if(rd<0)return false; pos+=rd;
+    rd = decode_nullable_string(data + pos, len - pos, req.header.client_id); if(rd<0)return false; pos+=rd;
+
+    rd = decode_int32(data + pos, len - pos, req.replica_id); if(rd<0)return false; pos+=rd;
+    if (req.header.api_version >= 2) {
+        if (pos + 1 > len) return false;
+        req.isolation_level = data[pos];
+        pos += 1;
+    }
+    
+    int32_t topics_count;
+    rd = decode_int32(data + pos, len - pos, topics_count); if(rd<0)return false; pos+=rd;
+    if (topics_count > 0 && topics_count < 1000) {
+        for(int i=0; i<topics_count; ++i) {
+            std::string t; rd = decode_string(data + pos, len - pos, t); if(rd<0)return false; pos+=rd;
+            req.topics.push_back(t);
+            int32_t p_count; rd = decode_int32(data+pos, len-pos, p_count); if(rd<0)return false; pos+=rd;
+            if (pos + p_count * 12 > len) return false;
+            pos += p_count * 12; // skip partition and timestamp (INT32 + INT64)
+        }
+    }
+    return true;
+}
+
+std::string serialize_list_offsets_response(const ListOffsetsResponse& res) {
+    std::string body;
+    encode_int32(body, res.correlation_id);
+    encode_int32(body, res.throttle_time_ms);
+    encode_int32(body, static_cast<int32_t>(res.topics.size()));
+    for (const auto& t : res.topics) {
+        encode_string(body, t.topic);
+        encode_int32(body, static_cast<int32_t>(t.partitions.size()));
+        for (const auto& p : t.partitions) {
+            encode_int32(body, p.partition);
+            encode_int16(body, p.error_code);
+            encode_int64(body, p.timestamp);
+            encode_int64(body, p.offset);
+        }
+    }
+    std::string out; encode_int32(out, static_cast<int32_t>(body.size())); out += body;
     return out;
 }

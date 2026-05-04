@@ -22,7 +22,8 @@ public:
     /// Returns the byte offset where the message was written.
     uint64_t append(const std::string& topic, Batch& batch);
 
-    bool send(int const& client_fd, int32_t correlation_id, const std::string& topic, uint64_t offset, uint32_t max_bytes);
+    bool send(int const& client_fd, int16_t api_version, int32_t correlation_id, const std::string& topic,
+              uint64_t offset, uint32_t max_bytes);
     /// Return the list of known topic names.
     std::vector<std::string> list_topics() const;
     bool                     topic_exists(const std::string& topic);

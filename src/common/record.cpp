@@ -7,23 +7,40 @@
 
 // Serialize Record → bytes
 std::string serialize_record(const Record& rec) {
-    std::string buf;
-    encode_varint(buf, rec.length);           // varint
-    buf += rec.attributes;                    // 1 byte cố định
-    encode_varint(buf, rec.timestamp_delta);  // varint
-    encode_varint(buf, rec.offset_delta);     // varint
-    encode_varint(buf, rec.key.size());       // varint (key length)
-    buf += rec.key;                           // raw bytes
-    encode_varint(buf, rec.value.size());     // varint (value length)
-    buf += rec.value;                         // raw bytes
-    encode_varint(buf, rec.headers.size());   // varint (header count)
-    for (const auto& h : rec.headers) {
-        encode_varint(buf, h.key.size());
-        buf += h.key;
-        encode_varint(buf, h.value.size());
-        buf += h.value;
+    std::string body;
+    body += rec.attributes;
+    encode_zigzag(body, rec.timestamp_delta);
+    encode_zigzag(body, rec.offset_delta);
+    
+    // key (nullable bytes)
+    if (rec.key.empty()) {
+        encode_zigzag(body, -1);
+    } else {
+        encode_zigzag(body, static_cast<int64_t>(rec.key.size()));
+        body += rec.key;
     }
-    return buf;
+    
+    // value (nullable bytes)
+    if (rec.value.empty()) {
+        encode_zigzag(body, -1);
+    } else {
+        encode_zigzag(body, static_cast<int64_t>(rec.value.size()));
+        body += rec.value;
+    }
+    
+    // headers count
+    encode_varint(body, static_cast<uint64_t>(rec.headers.size()));
+    for (const auto& h : rec.headers) {
+        encode_zigzag(body, static_cast<int64_t>(h.key.size()));
+        body += h.key;
+        encode_zigzag(body, static_cast<int64_t>(h.value.size()));
+        body += h.value;
+    }
+    
+    std::string out;
+    encode_zigzag(out, static_cast<int64_t>(body.size()));
+    out += body;
+    return out;
 }
 
 size_t deserialize_record(const char* data, size_t len, Record& rec) {

@@ -64,8 +64,8 @@ uint64_t LogManager::append(const std::string& topic, Batch& batch) {
 }
 
 // TODO: handle max_bytes
-bool LogManager::send(int const& client_fd, int32_t correlation_id, const std::string& topic, uint64_t offset,
-                      uint32_t max_bytes) {
+bool LogManager::send(int const& client_fd, int16_t api_version, int32_t correlation_id, const std::string& topic,
+                      uint64_t offset, uint32_t max_bytes) {
     TopicState* state_ptr = nullptr;
 
     {
@@ -88,7 +88,7 @@ bool LogManager::send(int const& client_fd, int32_t correlation_id, const std::s
             t_res.partitions.push_back(p_res);
             res.topics.push_back(t_res);
 
-            std::string header_buf = serialize_fetch_response_header(res);
+            std::string header_buf = serialize_fetch_response_header(res, api_version);
             int32_t     total_size = static_cast<int32_t>(header_buf.size() + 4);  // +4 for record_set_size
 
             std::string final_header;
@@ -106,7 +106,7 @@ bool LogManager::send(int const& client_fd, int32_t correlation_id, const std::s
     std::cout << "[LogManager::send] topic: " << topic << ", offset: " << offset << ", max_bytes: " << max_bytes
               << std::endl;
 
-    return state_ptr->send(client_fd, correlation_id, offset, max_bytes);
+    return state_ptr->send(client_fd, api_version, correlation_id, offset, max_bytes);
 }
 
 // ---------------------------------------------------------------------------

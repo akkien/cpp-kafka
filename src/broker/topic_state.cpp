@@ -4,11 +4,23 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <cstdio>
 #include <iostream>
 #include <mutex>
 
 #include "common/message.h"
 #include "common/serialize.h"
+
+static void hex_dump(const char* label, const char* data, size_t len) {
+    std::printf("\n=== %s (%zu bytes) ===\n", label, len);
+    for (size_t i = 0; i < len; ++i) {
+        if (i % 16 == 0) std::printf("%04zx: ", i);
+        std::printf("%02x ", (unsigned char)data[i]);
+        if ((i + 1) % 16 == 0) std::printf("\n");
+    }
+    std::printf("\n");
+    std::fflush(stdout);
+}
 
 namespace kafka {
 
@@ -72,7 +84,7 @@ uint64_t TopicState::append(Batch& batch) {
 }
 
 // TODO: handle max_bytes
-bool TopicState::send(int const& client_fd, int32_t correlation_id, uint64_t offset,
+bool TopicState::send(int const& client_fd, int16_t api_version, int32_t correlation_id, uint64_t offset,
                       [[maybe_unused]] uint32_t max_bytes) {
     std::shared_lock lock(mu_);
 
@@ -109,7 +121,7 @@ bool TopicState::send(int const& client_fd, int32_t correlation_id, uint64_t off
     t_res.partitions.push_back(p_res);
     res.topics.push_back(t_res);
 
-    std::string header_buf = serialize_fetch_response_header(res);
+    std::string header_buf = serialize_fetch_response_header(res, api_version);
 
     // Total size = header_buf + 4 (record_set_size) + amt_to_send
     int32_t total_size = static_cast<int32_t>(header_buf.size() + 4 + amt_to_send);
@@ -120,6 +132,11 @@ bool TopicState::send(int const& client_fd, int32_t correlation_id, uint64_t off
     encode_int32(final_header, static_cast<int32_t>(amt_to_send));
 
     // 1. Send header
+    static bool first_dump = true;
+    if (first_dump && amt_to_send > 0) {
+        first_dump = false;
+        hex_dump("FetchResponse header", final_header.data(), final_header.size());
+    }
     if (::send(client_fd, final_header.data(), final_header.size(), 0) < 0)
         return false;
 

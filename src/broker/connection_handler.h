@@ -35,6 +35,13 @@ private:
     void handle_api_versions(Request& req);
     void handle_metadata(Request& req);
     void handle_find_coordinator(Request& req);
+    void handle_join_group(Request& req);
+    void handle_sync_group(Request& req);
+    void handle_heartbeat(Request& req);
+    void handle_offset_fetch(Request& req);
+    void handle_offset_commit(Request& req);
+    void handle_list_offsets(Request& req);
+    
     /// Send a generic error response for unsupported APIs.
     void send_unsupported(const char* buf, size_t len);
     void handle_list_topics();
