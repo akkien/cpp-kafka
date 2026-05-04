@@ -6,27 +6,7 @@ const kafka = new Kafka({
 })
 
 const main = async () => {
-  await consume()
   await produce()
-  await sleep(30*1000)
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-const consume = async () => {
-  const consumer = kafka.consumer({ groupId: 'test-group' })
-  await consumer.connect()
-  await consumer.subscribe({ topic: 'animal', fromBeginning: true })
-
-  await consumer.run({
-    eachMessage: async ({ topic, partition, message }) => {
-      console.log({
-        value: message.value.toString(),
-      })
-    },
-  })
 }
 
 const produce = async () => {
@@ -36,6 +16,12 @@ const produce = async () => {
     topic: 'animal',
     messages: [
       { value: 'goose' },
+    ],
+  })
+  await producer.send({
+    topic: 'animal',
+    messages: [
+      { value: 'cat' }, { value: 'dog' }
     ],
   })
   console.log("[Producer]: done sending")
