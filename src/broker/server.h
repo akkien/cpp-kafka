@@ -29,7 +29,8 @@ private:
 
     uint16_t port_;
     /// @dev default member initializer (C++11), -1 is default value for file descriptor
-    int               listen_fd_{-1};
+    int               server_fd_{-1};
+    int               kq_{-1};
     std::atomic<bool> running_{false};
     ThreadPool        thread_pool_;
 

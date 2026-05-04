@@ -70,6 +70,13 @@ Trên Mac, chúng ta nên sử dụng kqueue để thực hiện Non-blocking I/
 Network Thread: Lắng nghe sự kiện từ hàng ngàn socket cùng lúc. Khi có data, nó đọc vào buffer, cắt thành các Request và đẩy vào Queue.
 Nó không bao giờ được phép thực hiện write vào Disk, để tránh bị "block" khi Disk chậm.
 
+----------
+Xử lý và Trả về:
+
+Một I/O Thread trong Pool nhặt Request đó ra, đọc/ghi đĩa (LogManager), tạo ra một Response.
+Sau đó, nó đẩy Response vào một hàng đợi trả về (Response Queue).
+Network Layer sẽ nhận được thông báo từ Response Queue, tìm đúng socket_fd vẫn đang mở đó và gửi bytes trả về cho client.
+
 ## Lock 
 3. Kafka thật giải quyết tranh chấp (Race Condition) như thế nào?
 Kafka thật sẽ tối ưu khóa (Lock Optimization) cực kỳ tinh vi:

@@ -13,16 +13,13 @@ namespace kafka {
 ConnectionHandler::ConnectionHandler(int client_fd, ThreadPool& thread_pool)
     : client_fd_(client_fd), thread_pool_(thread_pool) {}
 
-ConnectionHandler::~ConnectionHandler() {
-    if (client_fd_ >= 0)
-        ::close(client_fd_);
-}
+ConnectionHandler::~ConnectionHandler() {}
 
 // ---------------------------------------------------------------------------
 void ConnectionHandler::run() {
     Request req;
     ReqType req_type;
-    while (read_message(req_type, req)) {
+    if (read_message(req_type, req)) {
         RequestItem req_item{client_fd_, req_type, req};
         thread_pool_.enqueue(req_item);
     }
