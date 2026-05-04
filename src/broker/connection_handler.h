@@ -3,6 +3,7 @@
 #include <string>
 #include <variant>
 
+#include "broker/thread_pool.h"
 #include "common/message.h"
 
 namespace kafka {
@@ -10,41 +11,18 @@ namespace kafka {
 /// Handles one TCP client connection (runs on its own thread).
 class ConnectionHandler {
 public:
-    explicit ConnectionHandler(int client_fd);
+    explicit ConnectionHandler(int client_fd, ThreadPool& thread_pool);
     ~ConnectionHandler();
 
     /// Read requests in a loop until the client disconnects.
     void run();
 
 private:
-    int client_fd_;
+    int         client_fd_;
+    ThreadPool& thread_pool_;
 
-    /// Read one line (terminated by '\n') from the socket.
-    bool read_line(std::string& out);
     bool read_message(ReqType& req_type, Request& req);
-
-    /// Read exactly `n` bytes from the socket.
-    bool read_bytes(std::string& out, size_t n);
-
-    /// Write a string to the socket.
-    bool send_response(const std::string& data);
-
-    // ─── Command handlers ────────────────────────────────────────────
-    void handle_produce(Request& req);
-    void handle_consume(Request& req);
-    void handle_api_versions(Request& req);
-    void handle_metadata(Request& req);
-    void handle_find_coordinator(Request& req);
-    void handle_join_group(Request& req);
-    void handle_sync_group(Request& req);
-    void handle_heartbeat(Request& req);
-    void handle_offset_fetch(Request& req);
-    void handle_offset_commit(Request& req);
-    void handle_list_offsets(Request& req);
-    
-    /// Send a generic error response for unsupported APIs.
     void send_unsupported(const char* buf, size_t len);
-    void handle_list_topics();
 };
 
 }  // namespace kafka

@@ -45,6 +45,31 @@ Client ──TCP──▶ Network thread (nhận) ──queue──▶ I/O threa
 
 Lợi ích của việc tách: network thread không bao giờ bị chặn bởi disk I/O chậm, nên nó luôn sẵn sàng nhận request mới từ client khác.
 
+-----
+
+Tôi đã lập một bản kế hoạch chi tiết trong 
+implementation_plan.md
+. Dưới đây là các bước cụ thể chúng ta nên bắt đầu:
+
+1. Xây dựng "Cầu nối" (Request Queue)
+Chúng ta cần một Thread-safe Queue để các Network threads đẩy yêu cầu vào và các I/O threads lấy ra xử lý.
+
+File mới: src/common/concurrent_queue.h (sử dụng std::mutex và std::condition_variable).
+2. Định nghĩa đối tượng Request và Response
+Hiện tại ConnectionHandler đọc trực tiếp từ socket. Chúng ta cần đóng gói dữ liệu đó lại:
+
+Request: Chứa socket_fd + bytes đã nhận từ client.
+Response: Chứa socket_fd + bytes kết quả để gửi trả lại.
+3. Cài đặt I/O Thread Pool
+Thay vì std::thread(...).detach(), chúng ta sẽ khởi tạo một Pool cố định (ví dụ 8 threads).
+
+Các thread này sẽ chạy vòng lặp vô tận: queue.pop() -> xử lý logic Kafka -> tạo Response.
+4. Refactor Network Layer (Thử thách nhất)
+Trên Mac, chúng ta nên sử dụng kqueue để thực hiện Non-blocking I/O.
+
+Network Thread: Lắng nghe sự kiện từ hàng ngàn socket cùng lúc. Khi có data, nó đọc vào buffer, cắt thành các Request và đẩy vào Queue.
+Nó không bao giờ được phép thực hiện write vào Disk, để tránh bị "block" khi Disk chậm.
+
 ## Lock 
 3. Kafka thật giải quyết tranh chấp (Race Condition) như thế nào?
 Kafka thật sẽ tối ưu khóa (Lock Optimization) cực kỳ tinh vi:

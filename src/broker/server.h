@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <string>
 
+#include "broker/thread_pool.h"
+
 namespace kafka {
 
 /// TCP server that listens for producer / consumer connections.
@@ -29,6 +31,7 @@ private:
     /// @dev default member initializer (C++11), -1 is default value for file descriptor
     int               listen_fd_{-1};
     std::atomic<bool> running_{false};
+    ThreadPool        thread_pool_;
 
     /// Set up the listening socket.
     void bind_and_listen();

@@ -15,10 +15,12 @@
 
 namespace kafka {
 
+const int num_thread = std::thread::hardware_concurrency();
+
 /// @dev initializer list is more efficient than assignment in the body
 /// because it avoids default-constructing then assigning.
 /// especially constant members could only be initialized in initializer list.
-Server::Server(uint16_t port) : port_(port) {}
+Server::Server(uint16_t port) : port_(port), thread_pool_(num_thread) {}
 
 Server::~Server() {
     shutdown();
@@ -79,8 +81,8 @@ void Server::accept_loop() {
         }
 
         // TODO(phase 4): replace with thread-pool dispatch
-        std::thread([client_fd]() {
-            ConnectionHandler handler(client_fd);
+        std::thread([this, client_fd]() {
+            ConnectionHandler handler(client_fd, thread_pool_);
             handler.run();
         }).detach();
     }
