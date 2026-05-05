@@ -15,15 +15,15 @@ const produce = async () => {
   await producer.send({
     topic: 'animal',
     messages: [
-      { value: 'goose' },
+      { value: 'tiger' },
     ],
   })
-  await producer.send({
-    topic: 'animal',
-    messages: [
-      { value: 'cat' }, { value: 'dog' }
-    ],
-  })
+  // await producer.send({
+  //   topic: 'animal',
+  //   messages: [
+  //     { value: 'cat' }, { value: 'dog' }
+  //   ],
+  // })
   console.log("[Producer]: done sending")
   await producer.disconnect()
 }

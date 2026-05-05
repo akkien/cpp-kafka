@@ -161,6 +161,8 @@ ConsumeRequest Client::create_consume_request(const std::string& topic, uint64_t
     consume_request.replica_id    = -1;
     consume_request.max_wait_time = 500;
     consume_request.min_bytes     = 1;
+    consume_request.max_bytes     = max_bytes;
+    consume_request.isolation_level = 0;
 
     PartitionConsumeData p_data;
     p_data.partition_index = 0;

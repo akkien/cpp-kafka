@@ -55,6 +55,13 @@ std::string serialize_consume_request(const ConsumeRequest& req) {
     encode_int32(body, req.max_wait_time);
     encode_int32(body, req.min_bytes);
 
+    if (req.header.api_version >= 3) {
+        encode_int32(body, req.max_bytes);
+    }
+    if (req.header.api_version >= 4) {
+        body += static_cast<char>(req.isolation_level);
+    }
+
     encode_int32(body, static_cast<int32_t>(req.topics.size()));
     for (const auto& topic : req.topics) {
         encode_string(body, topic.name);
@@ -250,8 +257,7 @@ bool parse_produce_response(const char* data, size_t len, ProduceResponse& res) 
             if (read < 0) return false; pos += read;
             read = decode_int64(data + pos, len - pos, part.log_append_time);
             if (read < 0) return false; pos += read;
-            read = decode_int64(data + pos, len - pos, part.log_start_offset);
-            if (read < 0) return false; pos += read;
+            // NOTE: log_start_offset only in ProduceResponse v5+. We advertise v3 so omit it.
             topic.partitions.push_back(part);
         }
         res.topics.push_back(std::move(topic));
