@@ -1,202 +1,97 @@
 # Mini Kafka — C++ Implementation
 
-A single-node message broker inspired by Apache Kafka.
+A high-performance, single-node message broker built in C++ that is fundamentally inspired by the architecture and binary protocol of Apache Kafka.
 
-- Kafka design: https://kafka.apache.org/42/design/protocol/
-- Kafka storage: https://www.conduktor.io/blog/understanding-kafka-s-internal-storage-and-log-retention
-- Kafka 3rd party introduction: https://docs.conduktor.io/learn/fundamentals/what-is-apache-kafka  
-- Ref client: https://github.com/twmb/franz-go 
-## Build
+- **Kafka Design**: [Apache Kafka Protocol Guide](https://kafka.apache.org/42/design/protocol/)
+- **Kafka Storage**: [Internal Storage and Log Retention](https://www.conduktor.io/blog/understanding-kafka-s-internal-storage-and-log-retention)
+
+## 🚀 Key Features & Architecture
+
+This project is not just a toy broker; it implements core distributed system techniques to achieve extreme performance and concurrency:
+
+1. **Kafka Binary Protocol Compatibility**: 
+   Speaks the official binary Kafka protocol (V3/V4) for `PRODUCE`, `FETCH`, `API_VERSIONS`, and `METADATA`. It is fully interoperable with standard, production-ready clients like `kafkajs`.
+2. **Reactive Non-blocking Network Layer**: 
+   Utilizes an Event-Driven architecture powered by `kqueue` (macOS). The main thread strictly monitors network events (socket readiness) and buffers incoming data asynchronously. It never blocks on slow clients or disk I/O, allowing it to handle tens of thousands of concurrent connections.
+3. **Decoupled I/O Thread Pool**: 
+   Parsed requests are pushed into a thread-safe `ConcurrentQueue`. A pool of fixed worker threads pops these tasks, processes the business logic, and interacts with the disk. This 3-layer architecture prevents disk bottlenecks from stalling the network layer.
+4. **Zero-Copy Data Transfer**: 
+   Uses the `sendfile` system call to stream partition data directly from the kernel's page cache to the network socket. This completely bypasses user-space memory, vastly reducing CPU overhead during high-volume `FETCH` requests.
+5. **RecordBatch & Sparse Indexing**: 
+   Data is serialized into standard Kafka `RecordBatch` formats. To support fast reads, the broker maintains both a `.log` file and a `.index` file. The sparse index maps logical message offsets to physical byte positions, enabling `O(1)` random access lookups via binary search.
+
+### Concurrency Model
+
+kqueue/epoll is single-threaded, listening to multiple connection requests. If any client send data, it will trigger an event, then main thread will read data from socket, parse it, and push it to a thread-safe queue. Then I/O thread pool will pop tasks from the queue and process them. Finally, I/O threads will push responses to another thread-safe queue, and main thread will pop responses from the queue and send them to clients.
+
+## 📦 Build
+
+Require `cmake` and a C++17 compatible compiler.
 
 ```bash
+# Generate build files
 cmake -B build -DCMAKE_BUILD_TYPE=Debug
+
+# Compile the project
 cmake --build build
 ```
 
-## Test
-```bash
-cmake --build build --target test_serialize
-./build/test_serialize
-```
+## 🏃 Run
 
-## Run
+Start the broker (listens on `127.0.0.1:9092` by default). Data will be stored in the `./data` directory.
 
 ```bash
-# Start the broker (default port 9092)
-./build/broker
-
-# Produce a message
-./build/producer orders "hello world"
-
-# Consume from offset 0
-./build/consumer orders 0
+./build/broker 9092
 ```
 
-## Test with netcat
+In separate terminal windows, you can run the provided C++ CLI clients to test the system:
 
 ```bash
-echo -e "PRODUCE test 5\nhello" | nc localhost 9092
-echo -e "CONSUME test 0 1024"   | nc localhost 9092
+# Produce messages to topic 'animal' (creates topic automatically)
+# Keys and values are separated by ':', multiple messages can be sent.
+./build/producer "animal" "lion:tiger:bear"
+
+# Consume from topic 'animal' starting at logical offset 0, reading up to 4096 bytes
+./build/consumer "animal" 0 4096
 ```
 
-## Protocol
+## 🧪 Testing with Standard Kafka Clients (Node.js)
 
-This broker uses a custom **text-based protocol** (not compatible with Apache Kafka's binary protocol).
-It is designed to be simple, debuggable, and testable with `netcat`.
+Because the broker speaks the official binary protocol, you can use real-world Kafka clients. We have provided a test script using `kafkajs`.
 
-### Producer → Broker Flow
-
-```
-Producer                          Broker
-   │                                │
-   │── TCP connect ────────────────▶│
-   │                                │
-   │── PRODUCE orders 11\n ────────▶│
-   │── hello world ────────────────▶│  ← payload (11 bytes)
-   │                                │── append to orders.log
-   │                                │── offset = byte position
-   │◀── OK 0\n ────────────────────│  ← returns offset
-   │                                │
-   │── PRODUCE orders 3\n ─────────▶│
-   │── foo ────────────────────────▶│
-   │◀── OK 23\n ───────────────────│  ← next offset (0 + 8B + 4B + 11B = 23)
-   │                                │
-   │── close connection ───────────▶│
+1. Install Node dependencies:
+```bash
+cd rw-client
+npm install kafkajs
 ```
 
-**Request format:**
-```
-PRODUCE <topic> <payload_length>\n
-<payload_bytes>
-```
-
-**Response format:**
-```
-OK <offset>\n
+2. Run the producer & consumer:
+```bash
+node producer.js
+node consumer.js
 ```
 
-### Consumer → Broker Flow
+## 📂 Project Structure
 
 ```
-Consumer                          Broker
-   │                                │
-   │── TCP connect ────────────────▶│
-   │                                │
-   │── CONSUME orders 0 1024\n ────▶│
-   │                                │── lseek(fd, 0) — jump to offset 0
-   │                                │── read messages up to 1024 bytes
-   │◀── MESSAGE 0 11\n ────────────│
-   │◀── hello world ───────────────│
-   │◀── MESSAGE 23 3\n ────────────│
-   │◀── foo ───────────────────────│
-   │◀── END\n ─────────────────────│
-   │                                │
-   │── close connection ───────────▶│
+├── CMakeLists.txt
+├── rw-client/                # Node.js standard Kafka client testing scripts
+├── src/
+│   ├── broker/               # Core Broker Implementation
+│   │   ├── server.cpp        # kqueue Event Loop & Non-blocking Network I/O
+│   │   ├── thread_pool.cpp   # Worker pool for I/O operations
+│   │   ├── request_handler.cpp # Logic processing & Protocol validation
+│   │   ├── log_manager.cpp   # Disk I/O, Zero-copy sendfile, and Indexing
+│   │   └── topic_state.cpp   # Concurrency management per partition
+│   ├── client/               # C++ Client library implementation
+│   ├── common/               # Shared Data Structures (RecordBatch, Serialization)
+│   ├── consumer/             # C++ Consumer CLI entrypoint
+│   └── producer/             # C++ Producer CLI entrypoint
+└── tests/                    # Unit tests
 ```
 
-**Request format:**
-```
-CONSUME <topic> <offset> <max_bytes>\n
-```
+## 💡 Technical Learnings & Details
 
-**Response format:**
-```
-MESSAGE <offset> <payload_length>\n
-<payload_bytes>
-MESSAGE <offset> <payload_length>\n
-<payload_bytes>
-END\n
-```
-
-### Keep-alive
-
-One TCP connection supports multiple requests. The client does not need
-to reconnect for each message:
-
-```cpp
-kafka::Client client("127.0.0.1", 9092);
-client.connect();                           // 1 connection
-client.produce("orders", "message 1");      // reuse
-client.produce("orders", "message 2");      // reuse
-auto msgs = client.consume("orders", 0);    // reuse
-// handle messages from broker
-for (const auto& msg : msgs) {
-    std::cout << "[offset=" << msg.offset
-              << " size=" << msg.size << "] "
-              << msg.payload << "\n";
-}
-
-// connection closed when client is destroyed
-```
-
-### Continuous Polling (like real Kafka consumer)
-
-```cpp
-kafka::Client client("127.0.0.1", 9092);
-client.connect();
-
-uint64_t offset = 0;
-while (true) {
-    auto msgs = client.consume("orders", offset, 4096);
-    for (const auto& msg : msgs) {
-        // process each message
-        std::cout << msg.payload << "\n";
-
-        // advance offset past this message
-        // 8 bytes (offset) + 4 bytes (size) + payload size
-        offset = msg.offset + 12 + msg.size;
-    }
-    sleep(1);  // poll every second
-}
-```
-
-### On-disk Format
-
-Each topic is stored as a single append-only `.log` file under `data/`:
-
-```
-data/
-  orders.log
-  payments.log
-```
-
-Binary message format inside the file:
-
-```
-| offset (8 bytes) | size (4 bytes) | payload (N bytes) |
-```
-
-Offset is the **byte position** in the file, enabling O(1) random access via `lseek()`.
-
-Example
-
-File `data/fruit.log` (35 bytes, little-endian trên macOS):
-
-```
-Byte   Hex                                ASCII
-─────────────────────────────────────────────────
-       ┌── Message 1: "durian" ──────────┐
- 0-7   00 00 00 00 00 00 00 00           offset = 0
- 8-11  06 00 00 00                       size = 6
-12-17  64 75 72 69 61 6E                 "durian"
-       └─────────────────────────────────┘
-
-       ┌── Message 2: "mango" ───────────┐
-18-25  12 00 00 00 00 00 00 00           offset = 18 (0x12)
-26-29  05 00 00 00                       size = 5
-30-34  6D 61 6E 67 6F                   "mango"
-       └─────────────────────────────────┘
-```
-
-Tổng: `18 + 8 + 4 + 5 = 35 bytes`. Message tiếp theo sẽ ở offset 35.
-
-## Project Structure
-
-```
-src/
-  common/             Shared types & constants
-  broker/             TCP server + log storage
-  client/             Reusable client library
-  producer/           Producer CLI tool
-  consumer/           Consumer CLI tool
-```
+- **Endianness**: The Kafka Protocol enforces **Big-Endian** (Network Byte Order). C++ standard library structures and OS architectures (x86/ARM) are generally Little-Endian, requiring strict translation (`htonl`, `ntohl`) at the boundaries.
+- **Fragmentation**: TCP is a stream protocol. The `kqueue` network layer manually buffers partial packets (handling network fragmentation) until a full Kafka Message Frame (4 bytes size + payload) is received before dispatching.
+- **Locking**: Fine-grained locking is implemented at the `TopicState` level (using `std::shared_mutex` for Readers-Writer optimization) rather than global locks, ensuring Producers to one topic do not block Consumers or Producers on another topic.
