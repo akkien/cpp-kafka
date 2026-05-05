@@ -11,7 +11,9 @@
 - use sendfile to transfer file, no need to copy to user space
 - offset in Kafka is logical order of a message, not byte offset. Hence, besides .log file, kafka also use index file (.index) to speed up random access. .index file store pairs of (offset, position in .log)
 
-
+## OS
+- recv: use different flag
+  - MSG_WAITALL: wait until all data is received
 
 
 ## Encode varint 

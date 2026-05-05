@@ -5,6 +5,8 @@
 #include <string>
 
 #include "broker/thread_pool.h"
+#include "broker/connection_session.h"
+#include <unordered_map>
 
 namespace kafka {
 
@@ -33,12 +35,16 @@ private:
     int               kq_{-1};
     std::atomic<bool> running_{false};
     ThreadPool        thread_pool_;
+    std::unordered_map<int, ConnectionSession> sessions_;
 
     /// Set up the listening socket.
     void bind_and_listen();
 
-    /// Accept loop — spawns a handler per connection.
+    /// Accept loop — uses kqueue to handle events.
     void accept_loop();
+
+    /// Handle reading from a connected client in a non-blocking way
+    void handle_client_read(int client_fd);
 };
 
 }  // namespace kafka

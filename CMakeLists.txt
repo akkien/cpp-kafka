@@ -47,10 +47,11 @@ add_executable(broker
     src/broker/main.cpp
     src/broker/server.cpp
     src/broker/log_manager.cpp
-    src/broker/connection_handler.cpp
     src/broker/thread_pool.cpp
     src/broker/request_handler.cpp
+    src/broker/request_parser.cpp
     src/broker/concurrent_queue.h
+    src/broker/connection_session.h
     src/broker/types.h
     src/broker/topic_state.cpp
 )   

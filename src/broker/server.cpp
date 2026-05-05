@@ -10,9 +10,8 @@
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
-#include <thread>
-
-#include "broker/connection_handler.h"
+#include "broker/request_parser.h"
+#include "broker/request_handler.h"
 #include "broker/log_manager.h"
 
 namespace kafka {
@@ -101,15 +100,89 @@ void Server::accept_loop() {
                     continue;
 
                 set_nonblocking(client);
+                
+                // Initialize session
+                sessions_[client] = ConnectionSession{client, ""};
 
                 // Register the new client fd to watch for incoming data
                 struct kevent client_event_trigger;
                 EV_SET(&client_event_trigger, client, EVFILT_READ, EV_ADD, 0, 0, nullptr);
                 kevent(kq_, &client_event_trigger, 1, nullptr, 0, nullptr);
             } else {
-                ConnectionHandler handler(fd, thread_pool_);
-                handler.run();
+                // event came from client_fd → data is ready to be read
+                handle_client_read(fd);
             }
+        }
+    }
+}
+
+void Server::handle_client_read(int client_fd) {
+    char buf[4096];
+    while (true) {
+        ssize_t n = ::recv(client_fd, buf, sizeof(buf), 0); // No MSG_WAITALL!
+        if (n > 0) {
+            sessions_[client_fd].read_buffer.append(buf, n);
+        } else if (n == 0) {
+            // Client closed connection
+            ::close(client_fd);
+            sessions_.erase(client_fd);
+            return;
+        } else {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // No more data available right now
+                break;
+            } else {
+                std::cerr << "[broker] recv error: " << std::strerror(errno) << "\n";
+                ::close(client_fd);
+                sessions_.erase(client_fd);
+                return;
+            }
+        }
+    }
+
+    // Attempt to extract and parse complete frames
+    auto& buffer = sessions_[client_fd].read_buffer;
+    while (buffer.size() >= 4) {
+        uint32_t req_size = ntohl(*reinterpret_cast<const uint32_t*>(buffer.data()));
+        
+        // Sanity check
+        if (req_size == 0 || req_size > 64 * 1024 * 1024) {
+            std::cerr << "[broker] Invalid request size: " << req_size << ", closing connection\n";
+            ::close(client_fd);
+            sessions_.erase(client_fd);
+            return;
+        }
+
+        if (buffer.size() >= 4 + req_size) {
+            // We have a full frame!
+            std::string body = buffer.substr(4, req_size);
+            buffer.erase(0, 4 + req_size);
+
+            int16_t api_key = peek_api_key(body.data(), body.size());
+            ReqType req_type;
+            Request req;
+
+            if (parse_request_body(api_key, body, req_type, req)) {
+                if (static_cast<int>(req_type) == -1) {
+                    // Unsupported API key
+                    std::string err_resp = serialize_unsupported_error(body);
+                    if (!err_resp.empty()) {
+                        ::send(client_fd, err_resp.data(), err_resp.size(), 0);
+                    }
+                } else {
+                    // Valid request, send to ThreadPool
+                    RequestItem item{client_fd, req_type, std::move(req)};
+                    thread_pool_.enqueue(std::move(item));
+                }
+            } else {
+                std::cerr << "[broker] Parse failed, closing connection\n";
+                ::close(client_fd);
+                sessions_.erase(client_fd);
+                return;
+            }
+        } else {
+            // Frame is incomplete, wait for more data in next kqueue event
+            break;
         }
     }
 }
